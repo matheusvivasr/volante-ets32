@@ -1,0 +1,5 @@
+## Dependencias gerenciadas do componente main (S3).
+## esp_tinyusb: stack USB device (TinyUSB) p/ a S3 virar gamepad HID no PC nativo.
+dependencies:
+  idf: ">=5.0"
+  espressif/esp_tinyusb: "^1.4.0"

@@ -1,0 +1,3 @@
+# Defaults aplicados no build (sobre o sdkconfig).
+# Habilita 1 interface HID no TinyUSB (S3 = gamepad USB nativo).
+CONFIG_TINYUSB_HID_COUNT=1

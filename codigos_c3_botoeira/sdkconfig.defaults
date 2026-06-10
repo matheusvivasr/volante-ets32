@@ -1,0 +1,4 @@
+# Console na USB-Serial-JTAG (libera GPIO20/21 da UART0 p/ usar como botoes).
+# O log aparece pela USB nativa (mesma porta da gravacao da C3-0.42).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
