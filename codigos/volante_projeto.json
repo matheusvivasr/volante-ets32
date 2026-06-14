@@ -1,0 +1,407 @@
+{
+  "projeto": {
+    "nome": "Volante DIY modular para simuladores (ETS2)",
+    "objetivo": "Construir um volante de simulador modular, de baixo custo, expansivel por etapas funcionais, com force feedback (FFB) planejado para fase futura.",
+    "jogo_alvo": "Euro Truck Simulator 2",
+    "manutencao_deste_json": "Este JSON e a memoria compacta compartilhada/backup do projeto (sobrevive ao fim de uma sessao de chat). O assistente deve mante-lo atualizado a cada mudanca relevante de decisao/hardware/firmware. Existe tambem o D:/USP/Volante/LIGACOES.md (mapa de ligacoes fisicas estilo netlist/esquematico) que deve ser mantido EM PARALELO a cada mudanca de fiacao.",
+    "principios": [
+      "Modularidade: cada modulo funcional e um no independente, adicionavel por etapas.",
+      "Determinismo: loop critico de FFB roda LOCAL na S3, nunca distribuido pelo barramento.",
+      "Plug-and-play no PC: dispositivo se apresenta como HID gamepad padrao; ETS2 ve um unico controle.",
+      "Transporte abstraido: o formato de mensagem (ID + payload + contador) e o mesmo independente do meio fisico. Comeca em UART (hardware ja disponivel) e migra para CAN sem reescrever a logica, so trocando a camada de transporte."
+    ]
+  },
+
+  "inventario_hardware": {
+    "nota": "Placas e displays que o Vivas tem em maos (informado 2026-06-04).",
+    "itens": [
+      {"item": "ESP32-S3 N16R8", "papel": "Host/concentrador (etapa 1 + nucleo FFB futuro). 16MB flash / 8MB PSRAM.", "nota_5v": "O pino 5V do header NAO da saida porque o jumper solavel 'IN-OUT' (perto dos GPIO11/12) esta ABERTO: a ponta esquerda liga no pino 5V do header, a direita no rail interno do DC-DC (~4.38V/VBUS). Manter ABERTO (S3 fica no USB; 5V do projeto vem da C3/fonte externa; pino isolado = sem risco de backfeed se 5V externo encostar; e 4.38V seria fraco p/ rele). So fechar se um dia quiser a S3 fornecendo ~5V — e ai NUNCA injetar 5V externo nesse pino. (Descoberto 2026-06-05.)"},
+      {"item": "ESP32-C3 '0.42 OLED' (FN4/FH4)", "papel": "Painel da etapa 1. Dirige o GC9A01. OLED 0.42 embutido reservado para servos/ponteiros analogicos no futuro."},
+      {"item": "TFT redondo GC9A01 240x240 (SPI)", "papel": "Tela principal do Painel (etapa 1)."},
+      {"item": "ESP32 T-Display (ST7789, USB CH9102F)", "papel": "Reserva para a Botoeira com display (etapa 5); ja tem display colorido e botoes embutidos. OBS: e ESP32 classico (Xtensa), nao C3/S3."}
+    ]
+  },
+
+  "ambiente_desenvolvimento": {
+    "os": "Windows 11",
+    "ide": "VSCode com extensao ESP-IDF (Espressif)",
+    "idf_versao": "v5.4",
+    "idf_path": "C:\\Users\\Vivas\\esp\\v5.4\\esp-idf",
+    "toolchain_xtensa": "C:\\Users\\Vivas\\.espressif\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin",
+    "toolchain_riscv": "C:\\Users\\Vivas\\.espressif\\tools\\riscv32-esp-elf\\esp-14.2.0_20241119\\riscv32-esp-elf\\bin",
+    "cmake": "C:\\Users\\Vivas\\.espressif\\tools\\cmake\\3.30.2\\bin\\cmake.exe",
+    "ninja": "C:\\Users\\Vivas\\.espressif\\tools\\ninja\\1.12.1",
+    "python_env": "C:\\Users\\Vivas\\.espressif\\python_env\\idf5.4_py3.11_env\\Scripts\\python.exe",
+    "vscode_settings_globais": "C:\\Users\\Vivas\\AppData\\Roaming\\Code\\User\\settings.json",
+    "notas_configuracao": [
+      "cmake.cmakePath aponta pro cmake do ESP-IDF no settings.json do workspace (evita erro 'Bad CMake executable').",
+      "cmake.configureOnOpen e automaticReconfigure desativados: quem configura e a extensao ESP-IDF, nao o CMake Tools.",
+      "todo-tree.ripgrep apontado no settings global do usuario para D:\\Microsoft VS Code\\...\\rg.exe.",
+      "idf.customExtraPaths inclui toolchain (20241119), cmake e ninja para builds via terminal PowerShell."
+    ],
+    "scripts_de_build_e_flash": {
+      "flash_s3": "D:\\USP\\Volante\\flash_s3.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
+      "flash_c3_painel": "D:\\USP\\Volante\\flash_c3_painel.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
+      "build_s3": "D:\\USP\\Volante\\build_s3.ps1 (SO compila e sai; sem flash, sem monitor)",
+      "build_c3": "D:\\USP\\Volante\\build_c3.ps1 (SO compila e sai; sem flash, sem monitor)",
+      "flash_c3_nomon": "D:\\USP\\Volante\\flash_c3_nomon.ps1 -Port COMx (grava e SAI, SEM abrir monitor — evita ficar pendurado esperando telemetria/jogo)",
+      "flash_s3_nomon": "D:\\USP\\Volante\\flash_s3_nomon.ps1 -Port COMx (S3: grava e SAI, sem monitor)",
+      "monitor_s3": "D:\\USP\\Volante\\monitor_s3.ps1 -Port COMx (S3: SO abre o monitor serial p/ ver logs, ex.: angulo do AS5047P; sai com Ctrl+])",
+      "nota_execucao": "Para rodar via assistente sem pendurar: invocar o .ps1 num powershell-filho (powershell -NoProfile -ExecutionPolicy Bypass -File <script>) com Tee-Object p/ log. NUNCA usar acoes com 'monitor' em execucao automatizada (o monitor nunca retorna).",
+      "build_manual_s3": "PowerShell: set IDF_PATH + PATH do toolchain xtensa + python idf.py build (ver build_s3.ps1)",
+      "build_manual_c3": "Igual ao S3 mas com toolchain riscv32 e pasta codigos_c3_painel (ver build_c3.ps1)"
+    },
+    "fluxo_de_gravacao_e_responsabilidade": {
+      "regra": "GRAVAR O FIRMWARE NAS ESP32 E DEVER DO ASSISTENTE (Claude), nao do Vivas. O Vivas usa UM UNICO cabo USB para o projeto inteiro, entao so UMA placa fica conectada por vez.",
+      "antes_de_gravar": "Sempre CONFIRMAR qual placa esta conectada antes de dar flash: listar as portas COM e identificar pelo chip (a S3 aparece como USB-serial CH340/CP210x; a C3-0.42 aparece como USB nativo, tipo 'USB JTAG/serial debug unit' ou 'USB Serial Device'). Conferir tambem o numero da COM.",
+      "troca_de_cabo": "Quando precisar gravar a OUTRA placa, AVISAR o Vivas explicitamente para trocar o cabo USB de uma ESP para a outra e so prosseguir depois que ele confirmar que trocou.",
+      "scripts": "flash_s3.ps1 -Port COMx (S3) e flash_c3_painel.ps1 -Port COMx (C3). Eles rodam 'flash monitor': o monitor NAO retorna ao terminal (fica lendo a serial; sai com Ctrl+]). Para apenas compilar sem gravar, usar 'idf.py build' DENTRO da pasta do projeto (codigos\\ para S3, codigos_c3_painel\\ para C3 — nunca da pasta pai Volante).",
+      "registrado_em": "2026-06-05"
+    }
+  },
+
+  "estrutura_de_arquivos": {
+    "raiz": "D:\\USP\\Volante",
+    "firmware_s3": {
+      "pasta": "codigos\\",
+      "status": "COMPILADO E GRAVADO OK (esp32s3, IDF v5.4, COM3 em 2026-06-14). Etapa 2 (volante HID) com direcao+calibracao+pedais+botoeira+painel. Falta validar em hardware no monitor/joy.cpl.",
+      "_organizacao_main": "main/ organizado em sub-pastas por subsistema (2026-06-14): direcao/ (as5047, calib), pedais/ (pedais), botoeira/ (botoeira_rx), painel/ (telemetry), transporte/ (transport, transport_can), usb/ (usb_hid). main.c e idf_component.yml na raiz. CMakeLists usa SRCS com caminho relativo + INCLUDE_DIRS com cada sub-pasta, entao os #include continuam por nome simples. BUILD OK.",
+      "arquivos": {
+        "CMakeLists.txt": "raiz do projeto IDF, target esp32s3",
+        "main/CMakeLists.txt": "componente main: SRCS com caminhos das sub-pastas (direcao/, pedais/, botoeira/, painel/, transporte/, usb/) + INCLUDE_DIRS de cada uma. transport_can.c fora do SRCS (guardado p/ etapa 6).",
+        "sdkconfig": "gerado pelo set-target esp32s3",
+        "main/main.c": "app_main: nvs_flash_init (calibracao) + transport + telemetry + as5047 + calib + pedais + botoeira_rx + usb_hid. hid_task (50Hz): calib_steering (X=direcao, multi-turn+NVS), calib_button_poll (roteiro BOOT), pedais_get (Y=accel, Rx=freio), botoeira_get (Z/Rz=visao, btns 1-8). pc_rx_task (telemetria do PC via UART0) + reemit_task (0x100/0x101/0x102 a cada 50ms p/ o painel C3) + angle_task (loga angulo a 1Hz).",
+        "main/direcao/as5047.c/.h": "Driver SPI do sensor de angulo AS5047P (14 bits). SPI2_HOST modo 1, 8MHz. Pinos: CLK=GPIO4, MISO=GPIO5, MOSI=GPIO6, CSn=GPIO7. Le ANGLECOM (cmd 0xFFFF) com leitura pipelined (2 frames), valida paridade par + error-flag. as5047_read_raw() 0..16383 / as5047_read_deg() 0..360 (-1 em erro). Placa: AS5047P-TS_EK_AB (AMS). Pull-up interno no MISO (GPIO5): sem sensor a linha vai p/ 0xFFFF (error-flag) -> read retorna -1, evitando leitura de pino flutuante (que travava o eixo HID no maximo).",
+        "main/direcao/calib.c/.h": "Calibracao do eixo de direcao pelo botao BOOT (GPIO0) + multi-turn. O AS5047P e absoluto em 1 volta; calib conta voltas (wrap a 50Hz) p/ angulo continuo, origem = angulo no boot (mola centra ao ligar). Roteiro: segurar BOOT >1.5s entra; cliques curtos capturam esq->dir->centro; salva em NVS (ns 'volante', key 'steer_cal'); segurar cancela. Default sem calib = 900 graus lock-to-lock. calib_steering(raw)->int8 -127..127; calib_button_poll(); calib_hid_button() = BOOT como btn16 so em IDLE. (2026-06-14.)",
+        "main/pedais/pedais.c/.h": "Acelerador/freio na propria S3. Macro PEDAIS_USE_ADC (pedais.h): 0=2 BOTOES (GPIO->botao->GND, pull-up, ativo-baixo), 1=2 POTENCIOMETROS (ADC1). Pinos accel=GPIO10 (ADC1_CH9), freio=GPIO9 (ADC1_CH8) - mesmos nos dois modos. Saida -127 (repouso) .. +127 (fundo). pedais_get(&accel,&brake). Futuro: pots em molas (cursor em 3V3/GND/GPIO, NUNCA 5V). (2026-06-14.)",
+        "main/usb/usb_hid.c/.h": "S3 como GAMEPAD USB HID pela USB NATIVA. TinyUSB (componente espressif/esp_tinyusb). Eixos: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT. usb_hid_send(steer,throttle,brake,view_x,view_y,buttons) a 50Hz. VALIDADO NO WINDOWS 2026-06-10 (joy.cpl). Teste: plugar a USB NATIVA (separada do CH343/COM3).",
+        "main/botoeira/botoeira_rx.c/.h": "S3 recebe o estado da Botoeira (msg 0x040) por UART2 (TX=GPIO15, RX=GPIO16), mesmo framing. Parseia [botoes uint16][view_x int8][view_y int8] e guarda; o hid_task injeta nos botoes HID (bits 0-7) e nos eixos Z/Rz (visao). (2026-06-10, etapa 5.)",
+        "main/transporte/transport.c/.h": "camada UART: framing SOF(0xAA)+ID_LO+ID_HI+LEN+PAYLOAD+SEQ+CRC8. send_msg / rx_task. UART1, TX=GPIO17, RX=GPIO18, 115200 baud.",
+        "main/transporte/transport_can.c": "Backend CAN/TWAI do transporte da S3 (mesma interface do transport.h). GUARDADO p/ a migracao (etapa 6); FORA do build (nao testado/compilado). Pinos TWAI=GPIO17/18, 500kbps, seq vai como ultimo byte do payload. Ativar: trocar transport.c por este no CMakeLists + ligar SN65HVD230.",
+        "main/painel/telemetry.c/.h": "imagem de estado em RAM (telem_painel_t, telem_leds_t, telem_nav_t) com mutex FreeRTOS. update/get thread-safe. timeout 200ms. reemit() serializa e chama transport_send.",
+        "main/idf_component.yml": "Dependencia gerenciada: espressif/esp_tinyusb (^1.4.0) p/ o HID.",
+        "sdkconfig.defaults": "CONFIG_TINYUSB_HID_COUNT=1 (habilita 1 interface HID no TinyUSB).",
+        ".vscode/settings.json": "idf paths, target esp32s3, porta COM3, cmake path, ripgrep path"
+      }
+    },
+    "firmware_c3_painel": {
+      "pasta": "codigos_c3_painel\\",
+      "status": "COMPILADO OK (esp32c3, IDF v5.4)",
+      "placa": "ESP32-C3 '0.42 OLED' (FN4/FH4). O OLED 0.42 embutido (I2C GPIO5/6) NAO e usado nesta etapa; fica reservado para ideia futura de instrumentos analogicos (servos movendo ponteiros).",
+      "arquivos": {
+        "CMakeLists.txt": "raiz do projeto IDF, target esp32c3. SRCS: main.c, transport_rx.c, display.c, diag.c, oled.c, relay.c, lights.c (leds.c REMOVIDO do build).",
+        "main/main.c": "app_main: inicia display + oled + relay + lights + transport_rx. button_task (GPIO9 BOOT, ativo em 0) troca de view; render_task decodifica 0x100/0x101/0x102, atualiza tela/OLED, chama relay_set_sides(esq,dir) p/ os dois reles do pisca e lights_update(flags,fresca) p/ os LEDs de farol. Se timeout > 500ms mostra SEM SINAL (e silencia reles e faróis).",
+        "main/lights.c/.h": "LEDs indicadores de farol (2026-06-05). farol BAIXO -> GPIO20 (pad 'RX'), farol ALTO -> GPIO21 (pad 'TX') = UART0, liberada porque o console foi movido p/ USB-Serial-JTAG no sdkconfig. NAO conflita com a comunicacao (que e UART1 nos GPIO0/1). Espelha LED_FAROL_BAIXO (bit3) e LED_FAROL_ALTO (bit4) da msg 0x101. ACTIVE-HIGH (LED comum + resistor ao GND; trocar LIGHT_ACTIVE_HIGH p/ rele active-low). Leve piscar no LED do farol alto no boot (ROM bootloader ainda fala na UART0/GPIO21 por um instante).",
+        "main/transport_rx.c/.h": "mesmo framing da S3, so RX. UART1, RX=GPIO1, TX=GPIO0, 115200 baud. (saiu de 6/7 porque GPIO5/6 sao do OLED embutido). callback on_msg decodifica 0x100/0x101/0x102.",
+        "main/display.c/.h": "driver GC9A01 TFT redondo 240x240 via SPI2 (SCLK=GPIO4, MOSI=GPIO3, CS=GPIO7, DC=GPIO10, RST e BL no 3V3). framebuffer RGB565 em RAM DMA (112.5KB), fonte 5x7 colorida escalavel. 3 views: velocidade grande, RPM+temp+combustivel, navegacao. Indicadores luminosos desenhados na propria tela. CONFIG VENCEDORA do bring-up (jun/2026, validada com este painel especifico): SPI=10MHz (40MHz em protoboard/jumpers vira chuvisco), flush do framebuffer em BLOCOS de 24 linhas (um unico transfer de 115KB dava abort/boot-loop em display.c:130), MADCTL=0x08 (BGR sem espelho; 0x40/0x48 espelhavam o texto pelo bit MX e trocavam R<->B), inversao INVON (0x21) (INVOFF deixava fundo branco/cores invertidas). Tela de boot display_boot() mostra barras de cor rotuladas + mapa de pinos = teste visual de cor/orientacao.",
+        "main/leds.c/.h": "DESATIVADO nesta placa (sem GPIO livre): os GPIOs 0/1/3 viraram UART+SPI. Indicadores agora aparecem na tela do GC9A01. Arquivos mantidos para reuso futuro em outra placa.",
+        "main/transport_rx_can.c": "Backend CAN/TWAI do painel C3 (mesma interface do transport_rx.h, so RX). GUARDADO p/ a migracao (etapa 6); FORA do build (nao testado/compilado). Pinos TWAI=GPIO0/1, 500kbps. Ativar: trocar transport_rx.c por este no CMakeLists + ligar SN65HVD230.",
+        "main/relay.c/.h": "DOIS reles do pisca (tic-tac de carro), um por lado da seta. Adicionado jun/2026, ampliado p/ 2 canais em 2026-06-05. RELAY_PIN_L=GPIO2 (IN1, seta ESQUERDA) e RELAY_PIN_R=GPIO8 (IN2, seta DIREITA), modulo ACTIVE-LOW (RELAY_ACTIVE_HIGH=false), tudo no relay.h. Uma task espelha a fase de blink do display (esp_timer_get_time()/450000, ~1.1Hz): cada rele energiza quando a seta do seu lado ACENDE (tic) e solta quando APAGA (tac); no pisca-alerta os dois clicam juntos. So clica com telemetria fresca (relay_set_sides(left,right) chamado pelo main). GPIO2/8 sao strapping mas seguros no boot pois o modulo active-low fica em repouso ALTO. RELE: SRD-05VDC-SL-C (bobina 5V, puxa a partir de ~3.75V; em 3.3V o LED acende mas NAO estala).",
+        "main/display_ssd1306.c.bak": "backup do driver SSD1306 antigo (nao compilado), caso volte a usar OLED I2C 128x64."
+      }
+    },
+    "firmware_c3_botoeira": {
+      "pasta": "codigos_c3_botoeira\\",
+      "status": "COMPILADO E GRAVADO OK (esp32c3, IDF v5.4, COM8 em 2026-06-10). Falta TESTAR com botoes/joystick fisicos + o enlace UART com a S3.",
+      "placa": "ESP32-C3 0.42 (segunda C3). OLED nao usado (GPIO5/6 viraram botoes). Console na USB-JTAG (libera GPIO20/21).",
+      "arquivos": {
+        "CMakeLists.txt": "raiz, project volante_botoeira (target esp32c3 via set-target).",
+        "sdkconfig.defaults": "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y (console na USB, libera 20/21 p/ botoes).",
+        "main/main.c": "le 8 botoes + joystick (inputs_read), envia 0x040 on-change + heartbeat 200ms (transport_tx_send).",
+        "main/inputs.c/.h": "8 botoes ativo-baixo (pull-up) -> bitmap; joystick ADC1 oneshot (VRx=GPIO3 CH3, VRy=GPIO4 CH4, atten 12dB) -> int8 centrado. Pinos botoes: 5,6,7,10,20,21,2,8.",
+        "main/transport_tx.c/.h": "envio UART1 (GPIO0=TX, GPIO1=RX) com o framing SOF+ID+LEN+PAYLOAD+SEQ+CRC8. So TX (a Botoeira so envia)."
+      },
+      "scripts": "build_botoeira.ps1 (set-target 1a vez + build), flash_botoeira_nomon.ps1 -Port COMx."
+    },
+    "leitor_pc": {
+      "pasta": "pc_reader\\",
+      "arquivo": "telemetry_reader.py",
+      "dependencias": "pyserial>=3.5 (ja instalado)",
+      "uso_simulador": "python telemetry_reader.py --port COM3 --sim",
+      "uso_ets2_real": "python telemetry_reader.py --port COM3",
+      "descricao": "Le shared memory do plugin SCS SDK do ETS2 (nome: Local\\SCSTelemetry). Monta frames com o mesmo framing do firmware e envia por serial a 20Hz. Grupos 1 (0x100) e 2 (0x101) a cada ciclo; grupo 3 (0x102) a 1Hz. Modo --sim gera dados sinteticos sem precisar do jogo. O --sim percorre um ciclo-demo de indicadores de 24s (fases de 3s): seta ESQ (rele GPIO2) -> pausa -> seta DIR (rele GPIO8) -> pausa -> pisca-ALERTA (os dois reles) -> pausa -> showcase dos telltales da tela (farol alto/freios/cruise/buzina/limpador) -> pausa. Serve p/ validar os 2 reles e os indicadores sem o jogo."
+    }
+  },
+
+  "protocolo_mensagens": {
+    "conceito": "Protocolo logico identico para UART (agora) e CAN (futuro). Baseado em ID de mensagem. No CAN, o ID tambem define prioridade por arbitragem (ID menor = maior prioridade); dados mais criticos recebem IDs menores. No UART, o ID e o primeiro byte do frame. Faixas livres deixadas entre IDs para modulos futuros.",
+    "frame_uart": "[SOF 0xAA 1B][ID_LO 1B][ID_HI 1B][LEN 1B][PAYLOAD ate 8B][SEQ 1B][CRC8 1B]. CRC8 calculado sobre tudo exceto SOF e o proprio CRC (XOR acumulado).",
+    "frame_can": "ID 11 bits nativo + ate 8 bytes de payload (o contador de sequencia vai dentro do payload).",
+    "ids": [
+      {"id": "0x010", "origem": "Volante", "conteudo": "angulo (caso algum dia remoto)", "periodo": "-"},
+      {"id": "0x020", "origem": "Pedais", "conteudo": "acelerador, freio, embreagem", "periodo_ms": 5},
+      {"id": "0x030", "origem": "Cambio", "conteudo": "marcha atual / estado switches", "periodo": "on-change + 20ms"},
+      {"id": "0x040", "origem": "Botoeira", "conteudo": "bitmap de botoes + encoders", "periodo": "on-change + 20ms"},
+      {"id": "0x100", "origem": "S3 -> Painel", "conteudo": "velocidade(uint16 *10), rpm(uint16), marcha(int8), combustivel%(uint8), temp_motor(uint8)", "periodo_ms": 50},
+      {"id": "0x101", "origem": "S3 -> Painel", "conteudo": "bitmap de indicadores luminosos (uint16): seta_esq[0], seta_dir[1], pisca_alerta[2], farol_baixo[3], farol_alto[4], luz_freio[5], freio_mao[6], freio_motor[7], cruise_on[8], buzina[9], limpador[10], low_fuel[11]", "periodo": "on-change + 200ms"},
+      {"id": "0x102", "origem": "S3 -> Painel", "conteudo": "dist_dest(uint24 metros), eta(uint16 minutos), odometro(uint16 km)", "periodo_ms": 1000},
+      {"id": "0x7FF", "origem": "qualquer no", "conteudo": "heartbeat / status do no", "periodo_ms": 500}
+    ]
+  },
+
+  "ligacao_fisica_etapa1": {
+    "descricao": "3 fios entre S3 e C3 (placa C3-0.42). Ambos em 3.3V, sem conversor de nivel.",
+    "fios": [
+      "S3 GPIO17 (TX1) → C3 GPIO1 (RX1)",
+      "S3 GPIO18 (RX1) ← C3 GPIO0 (TX1)",
+      "S3 GND → C3 GND"
+    ],
+    "display_gc9a01": [
+      "C3 3.3V → GC9A01 VCC",
+      "C3 GND  → GC9A01 GND",
+      "C3 GPIO4 → GC9A01 SCL (SCLK)",
+      "C3 GPIO3 → GC9A01 SDA (MOSI)",
+      "C3 GPIO7 → GC9A01 CS",
+      "C3 GPIO10 → GC9A01 DC",
+      "C3 3.3V → GC9A01 RST (reset por software, sem pino dedicado)",
+      "C3 3.3V → GC9A01 BL (backlight sempre ligado)"
+    ],
+    "leds": "Removidos nesta placa por falta de GPIO livre (0/1/3 viraram UART+SPI). Indicadores luminosos sao desenhados na tela do GC9A01.",
+    "rele_pisca": [
+      "Modulo de 2 reles OPTO ACTIVE-LOW (rele SRD-05VDC-SL-C, bobina 5V). Um rele por lado da seta.",
+      "C3 GPIO2 → IN1 (seta ESQUERDA)",
+      "C3 GPIO8 → IN2 (seta DIREITA)",
+      "C3 5V    → JD-VCC do modulo (alimenta as BOBINAS; a propria C3 fornece 5V no seu pino 5V — o pino 5V da S3 NAO da saida)",
+      "C3 3.3V  → VCC do lado LOGICO (opto). REMOVER o jumper VCC/JD-VCC p/ separar 3.3V logico de 5V bobina; assim o pull-up do IN fica em 3.3V e o GPIO nao ve 5V.",
+      "C3 GND   → GND do modulo (terra comum; a corrente da bobina precisa fechar no MESMO GND de onde sai o 5V)",
+      "O som vem da propria bobina chaveando; nao precisa ligar carga nos contatos COM/NO/NC. Cada lado clica em fase com a seta daquele lado (~1.1Hz); pisca-alerta = os dois juntos."
+    ],
+    "leds_farol": [
+      "LEDs indicadores de farol nos pads RX/TX da C3 (UART0 livre apos mover console p/ USB).",
+      "C3 GPIO20 (pad 'RX') -> LED farol BAIXO (+ resistor ~330R -> GND)",
+      "C3 GPIO21 (pad 'TX') -> LED farol ALTO (+ resistor ~330R -> GND)",
+      "ACTIVE-HIGH (GPIO alto acende). Acendem conforme a telemetria 0x101 (farol baixo/alto do jogo). Comunicacao com a S3 segue intacta na UART1 (GPIO0/1)."
+    ],
+    "conexao_pc": "S3 pela porta USB (chip CH340/CP2102). C3-0.42 pela USB nativa apenas para gravar firmware/monitor."
+  },
+
+  "pinouts_placas_vista_de_cima": {
+    "nota": "Ordem FISICA dos pads, vista DE CIMA, p/ planejar solda/fiacao (lido da foto foto-clau-projeto_volante.pdf, 2026-06-05). C3: borda superior CONFIRMADA com o Vivas; borda inferior e silk do GC9A01/pinout da S3 marcados A CONFIRMAR (foto sem resolucao p/ todos os pinos).",
+    "esp32_c3_0_42_painel": {
+      "orientacao": "USB-C a DIREITA. 2 fileiras de 8 pads cada.",
+      "fileira_superior_esq_para_dir": ["GPIO0", "GPIO1", "GPIO2", "GPIO21=TX", "GPIO20=RX", "3V3", "GND", "5V"],
+      "fileira_inferior_esq_para_dir": ["GPIO3", "GPIO4", "GPIO5", "GPIO6", "GPIO7", "GPIO8", "GPIO9", "GPIO10"],
+      "fileira_inferior_status": "CONFIRMADO 2026-06-05: esq->dir = GPIO3..GPIO10 (com USB-C a direita).",
+      "uso": "0=UART1 TX->S3; 1=UART1 RX<-S3; 2=rele IN1(seta esq); 3=display MOSI; 4=display SCLK; 5=OLED SDA(interno); 6=OLED SCL(interno); 7=display CS; 8=rele IN2(seta dir); 9=botao BOOT(troca tela); 10=display DC; 20=LED farol baixo; 21=LED farol alto; 3V3/GND/5V=energia."
+    },
+    "gc9a01_display": {
+      "obs": "Modulo redondo, 7 pads (sem pino BL: backlight interno). CONFIRMADO 2026-06-05.",
+      "silk_olhando_a_tela_pads_embaixo_esq_para_dir": ["RST", "CS", "DC", "SDA", "SCL", "GND", "VCC"],
+      "atencao_lado_da_solda": "Essa ordem e vista DE FRENTE (tela). Soldando POR TRAS, a ordem espelha esq<->dir (VCC GND SCL SDA DC CS RST). Cuidado p/ nao inverter.",
+      "ligacao_nome_a_nome": "VCC->C3 3V3; GND->C3 GND; SCL->C3 GPIO4; SDA->C3 GPIO3; CS->C3 GPIO7; DC->C3 GPIO10; RST->C3 3V3 (reset por software)."
+    },
+    "esp32_s3_n16r8": {
+      "orientacao": "USB-C a ESQUERDA. 2 fileiras de 22 pads cada. CONFIRMADO 2026-06-05.",
+      "fileira_superior_esq_para_dir": ["GND", "5V", "GPIO14", "GPIO13", "GPIO12", "GPIO11", "GPIO10", "GPIO9", "GPIO46", "GPIO3", "GPIO8", "GPIO18", "GPIO17", "GPIO16", "GPIO15", "GPIO7", "GPIO6", "GPIO5", "GPIO4", "RST", "3V3", "3V3"],
+      "fileira_inferior_esq_para_dir": ["GND", "GND", "GPIO19", "GPIO20", "GPIO21", "GPIO47", "GPIO48", "GPIO45", "GPIO0", "GPIO35", "GPIO36", "GPIO37", "GPIO38", "GPIO39", "GPIO40", "GPIO41", "GPIO42", "GPIO2", "GPIO1", "RX=GPIO44", "TX=GPIO43", "GND"],
+      "uso_etapa1": "Link com a C3 = UART1: TX=GPIO17 e RX=GPIO18 (fileira SUPERIOR, adjacentes, perto do GPIO16/8). S3 GPIO17->C3 GPIO1(RX); S3 GPIO18<-C3 GPIO0(TX); GND comum. RX/TX da fileira INFERIOR a direita = UART0/CH343 (COM3, gravacao). Jumper 'IN-OUT' perto dos GPIO11/12 da fileira superior (ABERTO; pino 5V do header sem saida - ver inventario_hardware nota_5v). USB-C nativo (esquerda) reservado p/ HID+CDC (etapa 2)."
+    }
+  },
+
+  "arquitetura": {
+    "host": {
+      "mcu": "ESP32-S3",
+      "papel": "Concentrador + host USB HID. Le o volante por SPI, agrega estado de todos os nos CAN em RAM, monta um unico relatorio HID e envia ao PC. Futuramente roda a malha de FFB.",
+      "motivo": "Possui interface USB nativa."
+    },
+    "satelites": {
+      "mcu": "ESP32-C3 (um por modulo)",
+      "papel": "Le sensores/inputs locais (ou recebe telemetria, no caso do painel) e troca mensagens com a S3. Resolve falta de pinos e permite construcao modular por etapas."
+    },
+    "transporte": {
+      "estrategia": "Camada de transporte abstraida. O formato logico de mensagem e identico nos dois meios; troca-se apenas o driver de envio/recepcao.",
+      "fase_atual": {
+        "meio": "UART (serial por fio)",
+        "motivo": "Hardware ja disponivel; nao requer transceiver. Permite comecar imediatamente.",
+        "ligacao": "TX de um ESP -> RX do outro, RX -> TX, e GND comum (3 fios).",
+        "baud": 115200,
+        "observacao": "Banda sobra para o painel. UART e ponto-a-ponto; cada par S3<->modulo usa uma UART dedicada da S3 (a S3 tem multiplas UARTs)."
+      },
+      "fase_futura": {
+        "meio": "CAN 2.0A (TWAI)",
+        "motivo": "Multi-no nativo em um unico par de fios, determinismo, robustez a ruido (importante perto do motor de FFB).",
+        "migracao": "Trocar driver UART por TWAI mantendo o mesmo formato de mensagem (ID + payload + contador de sequencia). IDs UART = IDs CAN."
+      }
+    },
+    "barramento_can_futuro": {
+      "tipo": "CAN 2.0A (11-bit ID)",
+      "implementacao_esp32": "TWAI (controlador CAN interno do ESP32)",
+      "transceiver": "SN65HVD230 (3.3V) - um por no (AINDA NAO ADQUIRIDO)",
+      "bitrate_kbps": 500,
+      "topologia": "daisy-chain, par trancado CANH/CANL + GND comum",
+      "terminacao": "resistor 120 ohm em CADA uma das duas pontas fisicas do barramento (nao nos nos do meio)",
+      "observacao": "ESP32 tem controlador CAN/TWAI interno mas NAO o transceiver; transceiver e externo e obrigatorio. Migracao planejada quando os SN65HVD230 chegarem."
+    }
+  },
+
+  "modulos": [
+    {
+      "nome": "Painel / dashboard",
+      "mcu": "ESP32-C3",
+      "critico": false,
+      "primeira_etapa": true,
+      "status_firmware": "COMPILADO E PRONTO PARA FLASH",
+      "descricao": "Modulo de consumo visual da telemetria do jogo. Recebe dados da S3 (que le do PC) e exibe em display(s) e LEDs. Escolhido como primeira etapa por dar feedback visual cedo e validar toda a cadeia telemetria + transporte antes de qualquer mecanica.",
+      "exibe": "grupos de telemetria 1 (painel), 2 (indicadores luminosos) e 3 (navegacao)",
+      "hardware": [
+        "ESP32-C3 '0.42 OLED' (FN4/FH4)",
+        "Display TFT redondo GC9A01 240x240 colorido por SPI (velocidade, RPM, marcha, combustivel, temperatura, navegacao + indicadores na tela)",
+        "Indicadores luminosos desenhados na propria tela (sem LEDs discretos: sem GPIO livre nesta placa)",
+        "DOIS reles do pisca (modulo opto active-low, SRD-05VDC bobina 5V): IN1=GPIO2 (seta esq), IN2=GPIO8 (seta dir), clicando em fase com cada seta = som tic-tac de carro com estalos por lado. 5V vem do pino 5V da propria C3.",
+        "LEDs de farol baixo (GPIO20/pad RX) e farol alto (GPIO21/pad TX), acionados pela telemetria. Console movido p/ USB-JTAG p/ liberar esses pinos.",
+        "OLED 0.42 embutido: reservado para instrumentos analogicos com micro-servos no futuro (nao usado na etapa 1)",
+        "FASE ATUAL: ligacao UART direta com a S3 (3 fios: TX/RX/GND)",
+        "FASE FUTURA: transceiver SN65HVD230 para virar no CAN"
+      ],
+      "nota_arquitetura": "Nao depende do motor de FFB, mas depende de a S3 estar recebendo telemetria do PC. Recebe as mensagens 0x100, 0x101 e 0x102."
+    },
+    {
+      "nome": "Volante (nucleo)",
+      "mcu": "ESP32-S3",
+      "critico": true,
+      "status_firmware": "COMPILADO E PRONTO PARA FLASH (firmware base da etapa 1)",
+      "sensor_angulo": {
+        "escolhido": "AS5047P",
+        "placa": "AS5047P-TS_EK_AB (adapter board oficial da AMS). Em maos desde 2026-06-10.",
+        "interface": "SPI",
+        "resolucao_bits": 14,
+        "alternativa_descartada": "AS5600 (I2C, 12 bits, lento demais para FFB e endereco fixo)",
+        "montagem": "ima diametral centralizado no eixo, sobre o chip, gap ~1-2mm, alinhamento mecanico critico para linearidade",
+        "status": "CODIGO PRONTO E GRAVADO NA S3 (2026-06-10), mas NAO TESTADO: o modulo EK_AB veio SEM os pinos soldados. Teste adiado p/ quando soldar (+ ter a carcaca/eixo p/ montar o ima). O driver fica integrado no firmware principal da S3 (angle_task loga 'leitura invalida' ate o sensor estar ligado - sem efeito colateral). Calibracao (zero/range/gap) PULADA de proposito ate ter a mecanica.",
+        "ligacao_spi_S3": "Usa a fileira de CIMA do header 8x2 da EK_AB: S3 3V3->3V3, S3 GND->GND, S3 GPIO4->CLK, S3 GPIO5->MISO, S3 GPIO6->MOSI, S3 GPIO7->CSn. Configurar a placa p/ 3.3V (JP1 no lado 3V3, alimentar pelo pino 3V3, deixar 5V solto) p/ o MISO voltar em 3.3V. Fileira de baixo (A,B,I/PWM,TEST,W/PWM) NAO usada."
+      },
+      "ligacao": "AS5047P e driver do motor FFB ligados DIRETO na S3 (SPI/PWM), nunca em no remoto.",
+      "inputs_locais": "alguns botoes no proprio volante"
+    },
+    {
+      "nome": "Pedais",
+      "mcu": "ESP32-C3",
+      "critico": false,
+      "status_firmware": "NAO INICIADO",
+      "sensores": "3x hall linear (ex: A1302) ou potenciometros lineares lidos por ADC",
+      "eixos": ["acelerador", "freio", "embreagem"],
+      "preferencia": "hall (sem desgaste mecanico, maior durabilidade)"
+    },
+    {
+      "nome": "Cambio",
+      "mcu": "ESP32-C3",
+      "critico": false,
+      "status_firmware": "NAO INICIADO",
+      "opcoes": ["H-shifter (matriz de reed/hall switches por posicao)", "sequencial (hall analogico)"],
+      "extras": "botao de range/splitter (util para caminhao)"
+    },
+    {
+      "nome": "Botoeira",
+      "mcu": "ESP32-C3",
+      "critico": false,
+      "status_firmware": "NAO INICIADO",
+      "inputs": ["setas", "farois", "buzina (buzina de ar do ETS2)", "limpador", "freio motor", "encoders rotativos (retrovisor / menu)"],
+      "extras_display": "OLED/TFT pequeno mostrando marcha/RPM/velocidade da telemetria",
+      "status_firmware": "INICIADO 2026-06-10 (ver roadmap etapa 5 e LIGACOES.md secao 8). Placa: ESP32-C3 0.42. 8 botoes + joystick analogico (visao) -> 0x040 -> S3 -> HID. OLED 0.42 nao usado (GPIO5/6 viraram botoes). Pinout completo em LIGACOES.md."
+    }
+  ],
+
+  "telemetria": {
+    "fonte": "SDK de telemetria oficial do ETS2 (plugin DLL na pasta de plugins do jogo) que escreve em memoria compartilhada em tempo real. Nome da shared memory: Local\\SCSTelemetry.",
+    "plugin_recomendado": "scs-sdk-plugin (github.com/RenCloud/scs-sdk-plugin) - open source, ativo, suporta ETS2 e ATS.",
+    "status_leitor_pc": "IMPLEMENTADO (pc_reader/telemetry_reader.py). Modo --sim funciona sem o jogo. Modo real: offsets do read_ets2_shm() CORRIGIDOS contra a struct scsTelemetryMap_t do scs-sdk-plugin v1.12.1 (PLUGIN_REVID 12) - speed@948, rpm@952, gear@504, fuel@1000, fuelCapacity@704, waterTemp@1024, odometer@1056, routeDistance@1060, routeTime@1064, bools de indicadores @1566-1589. Header salvo em codigos/_scs_plugin/scs-telemetry-common.hpp. DLL 64-bit em codigos/_scs_plugin/release_v_1_12_1/Win64/scs-telemetry.dll.",
+    "fluxo_de_dados": "ETS2 -> plugin SDK -> shared memory -> telemetry_reader.py (PC) -> USB serial (framing proprio) -> ESP32-S3 -> reemite 0x100/0x101/0x102 por UART -> Painel C3 exibe.",
+    "grupos": {
+      "1_painel_dashboard": {
+        "destino": "Modulo Painel (display)",
+        "msg_id": "0x100",
+        "campos": ["velocidade atual", "rpm", "marcha atual", "nivel de combustivel %", "temperatura do motor"]
+      },
+      "2_indicadores_luminosos": {
+        "destino": "Modulo Painel (LEDs)",
+        "msg_id": "0x101",
+        "tipo": "bitmap uint16 de flags on/off",
+        "campos": ["seta esquerda[0]", "seta direita[1]", "pisca-alerta[2]", "farol baixo[3]", "farol alto[4]", "luz de freio[5]", "freio de mao[6]", "freio motor[7]", "cruise control[8]", "buzina[9]", "limpador[10]", "combustivel baixo[11]"]
+      },
+      "3_navegacao_gps": {
+        "destino": "Modulo Painel (atualiza 1Hz)",
+        "msg_id": "0x102",
+        "campos": ["distancia ate destino (metros uint24)", "ETA (minutos uint16)", "odometro (km uint16)"]
+      },
+      "4_fisica_veiculo": {
+        "destino": "S3 LOCAL - alimenta o FFB, NAO vai para display",
+        "msg_id": "nao existe ainda - consumo interno PC->S3",
+        "campos": ["aceleracao lateral", "aceleracao longitudinal", "dados de suspensao por roda", "velocidade angular", "slip"],
+        "observacao": "Grupo critico para realismo do force feedback. Fica no caminho interno PC->S3->calculo de torque."
+      }
+    }
+  },
+
+  "ffb": {
+    "regra_de_ouro": "Loop de FFB local na S3, nunca distribuido. Sensor de angulo (AS5047P) e driver do motor diretos na S3 (SPI/PWM). Malha de controle de torque em timer de alta frequencia (1kHz+). Calculo de torque nunca depende do barramento CAN.",
+    "componentes": [
+      "Motor DC + driver (BTS7960 / VNH ou servo industrial com driver) controlado por PWM da S3",
+      "Encoder = o proprio AS5047P",
+      "Telemetria do ETS2 via plugin SDK -> dados enviados a S3 por serial/USB"
+    ]
+  },
+
+  "roadmap_etapas": [
+    {
+      "etapa": 1,
+      "modulo": "Painel (C3 via UART)",
+      "status": "CONCLUIDA E VALIDADA COM ETS2 REAL (jun/2026). Cadeia completa funcionando: ETS2 + scs-telemetry.dll -> telemetry_reader.py -> USB serial -> ESP32-S3 (UART0) -> reemite UART1 (GPIO17->C3 GPIO1) -> painel C3 GC9A01. Painel tem mostradores analogicos 180° (velocimetro 0-160, tacometro 0-8 redline 6-8), OLED 0.42 como bateria de combustivel, botao BOOT(GPIO9) p/ navegar entre 3 telas (sem giro automatico), tela de viagem em 4 quadrantes, telltales (setas ambar piscando, farol, freio), tela de boot estilo TV (barras SMPTE). Bugs resolvidos no bring-up: SPI 40->10MHz (chuvisco em protoboard), flush em blocos (transfer unico de 115KB dava abort), MADCTL 0x08+INVON, fonte negrito, e o BUG CRITICO da S3: faltava uart_driver_install na UART0 -> pc_rx_task girava em vazio (prio 6) e matava o reemit (prio 4) -> SEM SINAL.",
+      "entrega": "S3 le telemetria do PC por USB e reemite por UART; painel C3 (GC9A01 redondo) alterna 3 views a cada 2s (velocidade / RPM+temp+combustivel / navegacao) e desenha os indicadores na tela. Modo simulador disponivel sem precisar do ETS2.",
+      "transporte": "UART",
+      "como_testar": [
+        "1. .\\ flash_s3.ps1 -Port COM3",
+        "2. .\\ flash_c3_painel.ps1 -Port COM4",
+        "3. python pc_reader/telemetry_reader.py --port COM3 --sim",
+        "4. Observar display OLED e LEDs no C3"
+      ]
+    },
+    {"etapa": 2, "modulo": "Volante (S3)", "status": "EM ANDAMENTO 2026-06-10: (1) AS5047P por SPI (GPIO4-7) - driver pronto e gravado, FALTA testar (sensor veio sem pinos soldados). (2) USB HID gamepad na USB nativa (TinyUSB) - VALIDADO NO WINDOWS 2026-06-10: enumerou como 'Controlador de jogo compativel com HID' (VID_303A PID_4004), sem erro, e o eixo X varre suave no joy.cpl (varredura-demo; segue o sensor quando ligado). BOOT=botao1. Bug resolvido no bring-up: sem sensor o MISO flutuava e travava o eixo no maximo (reagia ao toque nos pinos) -> pull-up interno no MISO (GPIO5) deixa a linha em 0xFFFF=invalida -> cai na demo limpa. FALTA: composto HID+CDC (telemetria pela mesma porta), eixo 16-bit, e a calibracao (quando tiver a carcaca/sensor soldado).", "entrega": "AS5047P por SPI + alguns botoes locais -> ja funciona como gamepad USB. Joga ETS2 com volante real. USB nativo do S3 como dispositivo composto HID(gamepad)+CDC(serial): um cabo entrega controle ao jogo e recebe telemetria pelo CDC; gravacao/console pela porta UART/CH340. Pode ser antecipado parcialmente (stack TinyUSB + botao de teste) antes de ter o AS5047P.", "transporte": "local na S3"},
+    {"etapa": 3, "modulo": "Pedais (C3)", "status": "NAO INICIADO", "entrega": "acelerador/freio/embreagem por hall linear.", "transporte": "UART (migra para CAN)"},
+    {"etapa": 4, "modulo": "Cambio (C3)", "status": "NAO INICIADO", "entrega": "H-shifter ou sequencial.", "transporte": "UART (migra para CAN)"},
+    {"etapa": 5, "modulo": "Botoeira (C3)", "status": "INICIADA 2026-06-10: firmware da Botoeira (codigos_c3_botoeira/, C3 0.42) PRONTO E COMPILADO - le 8 botoes + joystick analogico de visao, envia 0x040 por UART. S3 estendido (botoeira_rx.c, UART2 GPIO15/16) recebe e injeta nos HID (8 botoes + eixos Z/Rz). S3 ja gravado; FALTA: gravar a Botoeira (mover cabo p/ ela) e testar com botoes/joystick fisicos. Botoes: seta esq=GPIO5, seta dir=GPIO6, alerta=GPIO7, buzina=GPIO10, farol alto=GPIO20, farol baixo=GPIO21, limpador=GPIO2, freio-motor=GPIO8. Joystick: VRx=GPIO3, VRy=GPIO4 (3.3V).", "entrega": "farois, setas, buzina, joystick de visao; encoder de menu fica p/ depois.", "transporte": "UART (migra para CAN)"},
+    {"etapa": 6, "modulo": "Migracao para CAN", "status": "CODIGO ESCRITO E GUARDADO 2026-06-10 (transport_can.c na S3 + transport_rx_can.c na C3), FORA do build, nao testado. Falta: comprar os SN65HVD230, ativar nos CMakeLists, ligar o barramento (120 ohm nas pontas) e testar.", "entrega": "Com os SN65HVD230 em maos, trocar backend UART por TWAI mantendo o mesmo formato de mensagem; unificar os enlaces num barramento CAN unico.", "transporte": "CAN"},
+    {"etapa": 7, "modulo": "FFB (volta na S3)", "status": "NAO INICIADO", "entrega": "motor + driver + uso do grupo de fisica da telemetria para calculo de torque local.", "transporte": "local na S3"}
+  ],
+
+  "decisoes_fechadas": [
+    "Sensor de angulo: AS5047P (SPI), por causa do FFB futuro e maior resolucao.",
+    "Transporte: comecar em UART (hardware ja disponivel) e migrar para CAN (TWAI, 500 kbps, SN65HVD230) depois, mantendo o mesmo formato de mensagem.",
+    "S3 como host USB HID e concentrador; C3 como nos satelite.",
+    "Painel como PRIMEIRA etapa, para validar telemetria + transporte cedo e ter interatividade visual antes da mecanica.",
+    "Camada de transporte abstraida: logica dos modulos independe do meio fisico.",
+    "Framing UART: SOF(0xAA) + ID(2B little-endian) + LEN(1B) + PAYLOAD(ate 8B) + SEQ(1B) + CRC8(1B). CRC8 = XOR acumulado sobre ID+LEN+PAYLOAD+SEQ.",
+    "Display do painel: TFT redondo GC9A01 240x240 colorido (SPI), dirigido pela placa ESP32-C3 '0.42 OLED'. Driver GC9A01 bare-metal proprio implementado. Painel alterna 3 views (velocidade / motor / navegacao) a cada 2s. Indicadores luminosos desenhados na tela (sem LEDs discretos nesta placa). O OLED 0.42 embutido fica reservado para instrumentos analogicos com servos no futuro. (Decisao 2026-06-04, substitui o SSD1306 128x64 anterior.)",
+    "Plugin de telemetria: scs-sdk-plugin (RenCloud, GitHub). Shared memory Local\\SCSTelemetry.",
+    "FFB sera implementado eventualmente; arquitetura ja preparada para ele (nucleo na S3, grupo de fisica da telemetria reservado).",
+    "USB do PC na S3: usar o periferico USB NATIVO do S3 como dispositivo COMPOSTO HID(gamepad) + CDC(serial). Assim um unico cabo entrega o controle pro ETS2 E a telemetria de volta pelo CDC. A porta UART/CH340 fica reservada para gravacao e console. Motivo: o chip serial CH340 nunca pode virar HID; so o USB nativo. (Decisao 2026-06-04.)",
+    "Rele do pisca no Painel C3: DOIS reles (modulo opto active-low de 2 canais, rele SRD-05VDC), um por lado da seta — IN1=GPIO2 (esquerda), IN2=GPIO8 (direita) — clicando em fase com os telltales para reproduzir o tic-tac de um carro, estalos independentes por lado (pisca-alerta = os dois juntos). Bobina 5V alimentada pelo pino 5V da PROPRIA C3 (o pino 5V da S3 nao da saida); logica em 3.3V com jumper VCC/JD-VCC removido; GND comum. GPIO2/8 sao strapping mas seguros no boot (active-low em repouso ALTO). Logica em relay.c (relay_set_sides), dirigida pelo main. (Decisao 2026-06-05.)",
+    "Faróis no Painel C3: LEDs de farol baixo (GPIO20/pad RX) e farol alto (GPIO21/pad TX) acionados pela telemetria 0x101. Esses pads sao a UART0; foram liberados movendo o console para USB-Serial-JTAG (sdkconfig: ESP_CONSOLE_USB_SERIAL_JTAG=y, UART_DEFAULT off) — o log continua aparecendo pela USB (COM4). A comunicacao com a S3 NAO usa os pads RX/TX: e UART1 (C3 GPIO0/1 <-> S3 GPIO17/18); na S3 os pads RX/TX sao o CH343 (porta de gravacao COM3), por isso nunca foram usados p/ comms. (Decisao 2026-06-05.)",
+    "Mostrador do painel definitivamente via DISPLAY (GC9A01 ja desenha os ponteiros analogicos 180°). A ideia de instrumentos com ponteiro FISICO (micro-servo/motor de passo movendo agulha) foi ARQUIVADA — muita mecanica por ganho so estetico; o esforco de mecanica fica reservado pro volante/FFB. OLED 0.42 segue como bateria de combustivel. (Decisao 2026-06-05.)",
+    "Pino 5V da S3 nao da saida: jumper solavel 'IN-OUT' (perto dos GPIO11/12) esta ABERTO, isolando o pino do rail interno (~4.38V). Decidido MANTER ABERTO (detalhe em inventario_hardware.itens > ESP32-S3 > nota_5v). (Decisao 2026-06-05.)",
+    "Centralizacao do volante por MOLA DE TORCAO (passiva, volante tende a voltar ao centro) por enquanto, no lugar do FFB. FFB ADIADO (sera implementado depois). Impacto no firmware: ZERO - a mola e mecanica e o AS5047P le angulo absoluto independente dela. (Decisao 2026-06-10.)",
+    "Gravacao de firmware e DEVER do assistente, nao do Vivas: ele usa um unico cabo USB e so uma placa fica ligada por vez; o assistente confirma qual placa esta conectada antes de gravar e avisa quando o Vivas precisa trocar o cabo. (Decisao 2026-06-05; detalhes em ambiente_desenvolvimento.fluxo_de_gravacao_e_responsabilidade.)",
+    "Gatilho de migracao para CAN: enquanto houver ATE 2 modulos satelite ligados a S3 (painel + botoeira), manter UART ponto-a-ponto. No momento em que um 3o modulo satelite for adicionado (qualquer tipo, ainda nao definido), migrar IMEDIATAMENTE para CAN/TWAI (transport_can.c / transport_rx_can.c, ja guardados fora do build), em vez de abrir uma 3a UART dedicada. Formato de mensagem (ID+payload+seq+CRC) e identico nos dois meios, IDs UART = IDs CAN, facilitando a troca. (Decisao 2026-06-13.)",
+    "Pedais provisorios na PROPRIA S3: acelerador=GPIO10 (ADC1_CH9) e freio=GPIO9 (ADC1_CH8). Hoje sao 2 BOTOES (GPIO->botao->GND, pull-up interno, ativo-baixo); futuramente viram 2 POTENCIOMETROS em molas nos mesmos pinos (ADC-capazes). Troca por macro PEDAIS_USE_ADC em pedais.h (0=botao, 1=ADC). Cursor do pot em 3V3/GND/GPIO, NUNCA 5V. Modulo pedais.c. (Decisao 2026-06-14.)",
+    "Calibracao da direcao pelo botao BOOT (GPIO0): segurar >1.5s entra em modo calibracao; cliques curtos capturam batente esquerdo -> direito -> centro; salva em NVS (namespace 'volante', chave 'steer_cal'); segurar >1.5s durante cancela. O AS5047P e absoluto em 1 volta, entao calib.c faz multi-turn (conta voltas por wrap a 50Hz) com origem = angulo no boot (mola centra o volante ao ligar). Default sem calibracao = 900 graus lock-to-lock. Mapa de eixos HID: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT (so fora da calibracao). Modulo calib.c. (Decisao 2026-06-14.)"
+  ],
+
+  "pendencias_a_definir": [
+    "Tipo de cambio (H-shifter vs sequencial)",
+    "Numero final de botoes/eixos",
+    "Escolha do motor e driver de FFB (define a TENSAO da fonte: correia/DC escovado -> 12V alta-corrente tipo 12V/30A; direct-drive servo/BLDC -> 24V tipo 24V/10A. Dimensionar pelo PICO do motor +30-50%. Motor em fonte PROPRIA, separada da logica).",
+    "Alimentacao externa do rig logico (regra definida, falta montar): fonte 12/24V -> buck ajustado p/ 5,0V -> trilho 5V+GND distribuido por cabo USB-C power-only (so + e -) injetando 5V no VBUS de cada C3. S3 no USB do PC, FORA do 5V externo, GND comum. Cap 220-470uF no rail dos reles. Nunca dois 5V na mesma placa (desligar 5V externo da C3 ao grava-la pelo PC).",
+    "O que soldar (a confirmar): cluster do Painel C3 (display GC9A01, LEDs de farol GPIO20/21, fios IN dos reles GPIO2/8) pode SOLDAR — congelado e validado. Links inter-modulo (S3<->C3, alimentacao) e a S3 INTEIRA ficam em conector/protoboard, pois a S3 ainda cresce (HID USB, AS5047P, FFB) e o link migra p/ CAN.",
+    "Mecanica do volante (eixo, rolamentos, acoplamento do motor)",
+    "Conectores fisicos definitivos dos modulos",
+    "Plugin scs-telemetry.dll (v1.12.1 Win64) INSTALADO em D:/sssss/steamapps/common/Euro Truck Simulator 2/bin/win_x64/plugins/ (jun/2026). Falta: abrir o ETS2 e validar telemetria REAL (so testado com --sim ate agora). telemetry_reader.py ganhou modo --debug que imprime os campos crus p/ calibrar offsets ao vivo (especialmente os bits de luzes/setas).",
+    "Portas COM (cabo unico, variam conforme a porta USB): S3 = COM3 (chip CH343, wch.cn). Painel C3 = COM4 (USB-JTAG nativo). Botoeira C3 = COM8 CONFIRMADO 2026-06-10 (USB-JTAG VID_303A PID_1001). A C3 nova precisou de BOOT-hold no 1o plug p/ aparecer. S3 tambem tem a USB NATIVA (separada do CH343) que vira o HID (nao e COM)."
+  ],
+
+  "proximos_passos_codigo": [
+    "ETAPA 1 - PENDENTE: gravar firmware na S3 e C3, ligar os 3 fios e o display OLED, rodar o simulador Python e validar exibicao.",
+    "ETAPA 1 - PENDENTE: instalar scs-sdk-plugin no ETS2 e validar leitura de telemetria real.",
+    "ETAPA 2: adicionar leitura do AS5047P por SPI na S3 e stack USB HID (gamepad com pelo menos 1 eixo de direcao).",
+    "GERAL: implementar heartbeat (0x7FF) e logica de timeout por no na S3.",
+    "GERAL: quando chegar os SN65HVD230, implementar backend TWAI como segunda opcao de transporte."
+  ]
+}
