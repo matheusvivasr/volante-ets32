@@ -1,0 +1,150 @@
+{
+  "_descricao": "Licoes aprendidas gerando diagramas/layouts em matplotlib (diagrama_ligacoes.py, layout_fisico.py, layout_fisico_v2.py) para o projeto Volante DIY. Use como checklist/referencia para criar novos layouts sem repetir os mesmos erros.",
+
+  "stack": {
+    "lib": "matplotlib",
+    "backend": "Agg (matplotlib.use('Agg') antes de pyplot, pois roda sem display)",
+    "shapes": ["FancyBboxPatch (caixas com cantos arredondados)", "Circle (badges/imã/botoes)", "Rectangle (faixas, eixo, perfboard)", "Line2D (somente para entradas de legenda)"],
+    "saida": "salvar sempre .png (dpi=150, bbox_inches='tight', facecolor='white') e .pdf"
+  },
+
+  "paleta_cores_C": {
+    "_uso": "dict global C{} reaproveitado entre todos os scripts para manter consistencia visual de tipo de fio",
+    "usb": "#7f7f7f",
+    "pwr": "#d62728",
+    "gnd": "#2b2b2b",
+    "v3v3": "#ff7f0e",
+    "spi": "#1f77b4",
+    "uart": "#2ca02c",
+    "disp": "#9467bd",
+    "relay": "#8c564b",
+    "led": "#e377c2",
+    "btn": "#17becf",
+    "analog": "#bcbd22",
+    "wire": "#444444",
+    "mech": "#aa8800 (acoplamento mecanico, ex: imã-eixo, linha tracejada, NAO eh fio eletrico)"
+  },
+
+  "numeracao_de_ligacoes": {
+    "regra": "Manter numeracao 1-38 (ou faixa equivalente) IDENTICA entre diagrama_ligacoes.py, LIGACOES.md e todos os layouts fisicos. Cada conexao tem um numero unico que aparece como 'badge' (circulo numerado colorido) perto do pino correspondente em qualquer diagrama.",
+    "faixas_atuais": {
+      "1-5": "alimentacao/GND",
+      "6-11": "SPI / AS5047P",
+      "12-13": "UART1 (Nucleo <-> Painel C3)",
+      "14-15": "UART2 (Nucleo <-> Botoeira C3)",
+      "16-21": "Display GC9A01",
+      "22-24": "Modulo rele",
+      "25-26": "LEDs farol",
+      "27-34": "8 botoes (33=GPIO2 e 34=GPIO8 sao strapping pins, sempre marcar com aviso)",
+      "35-38": "Joystick KY-023 (alertar VCC=3.3V, NUNCA 5V)"
+    },
+    "ao_criar_novo_layout": "Nao inventar numeros novos; reutilizar os mesmos badges/numeros do diagrama de origem para que o usuario consiga cruzar referencia entre arquivos."
+  },
+
+  "helpers_padrao": {
+    "box(ax,x,y,w,h,title,body=None,fc,ec,fs_title,fs_body,tcolor)": {
+      "uso": "Caixa com titulo no topo + corpo de texto opcional abaixo",
+      "regra_critica": "title sempre va='top' ancorado em (x+w/2, y+h-0.20). Se body existir, calcular offset do body em funcao do numero de linhas do titulo: nlines = title.count('\\n')+1; body_y = y+h-0.20 - nlines*0.30. NUNCA usar offset fixo (ex: y+h-0.5) quando o titulo pode ter 2+ linhas -> causa overlap titulo/corpo."
+    },
+    "comp(ax,x,y,w,h,label,color,fs)": {
+      "uso": "Caixa de componente para perfboard, com 'color+\"33\"' como facecolor (alpha via hex)",
+      "regra_critica_1": "color deve ser hex de 6 digitos (#RRGGBB). Hex de 3 digitos (#666) + '33' vira string invalida (#66633) -> ValueError: Invalid RGBA argument. Sempre usar 6 digitos.",
+      "regra_critica_2": "label tambem ancorado va='top' em (x+w/2, y+h-0.16). Se precisar de 'sub' (texto secundario), calcular posicao a partir de nlines do label, ou (preferencia) NAO usar sub e colocar texto fora da caixa / como badges separados, pois sub frequentemente colide com badges colocados dentro da caixa."
+    },
+    "badge(ax,x,y,num,color,r=0.16,fs=8)": "Circulo colorido com numero/branco no centro -> usado para numerar ligacoes (1-38) e tambem para labels curtos tipo 'W1'/'W2'.",
+    "pin(ax,x,y,num,color,label,side='right'/'left',r=0.16)": {
+      "uso": "badge + texto do nome do pino ao lado",
+      "regra_critica": "side='left' ancora texto com ha='right' crescendo PARA A ESQUERDA a partir de x-0.32; side='right' cresce para a direita a partir de x+0.32. Antes de posicionar uma coluna de pinos, VERIFICAR se ha caixas de componentes no caminho que o texto vai atravessar -- labels longos (ex: 'G16 RX2->Botoeira C3 [W2]') frequentemente colidem com caixas vizinhas. Preferir labels curtos (ex: 'G16 RX2 [W2]') e reservar a legenda/numeracao para dar o detalhe completo.",
+      "regra_pratica": "Estimar largura do texto: cada caractere em fontsize~6.4 ocupa ~0.45-0.5 unidades de eixo (quando aspect='equal' e perfboard de ~28-47 colunas). Usar isso para checar se cabe no espaco livre antes de renderizar."
+    },
+    "perfboard(ax,ncols,nrows,title,size_label)": "Desenha grade de pontos (furos 2.54mm) + retangulo de fundo + titulo/area. xlim(-1,ncols+1), ylim(-1.6,nrows+1.4), aspect='equal'.",
+    "arrow(ax,p0,p1,color,lw=2.2)": "annotate com arrowstyle='<->' para indicar fiacao interna fixa entre blocos (ex: W1/W2). Os marcadores de seta em ambas pontas podem colidir com texto vizinho se a seta terminar muito perto de um label -- deixar margem (>=0.2-0.3 unidades) entre a ponta da seta e qualquer texto."
+  },
+
+  "padroes_de_layout": {
+    "faixas_dashed": "Usar Rectangle com ls='--' para sub-areas dentro de um bloco maior (ex: 'FRENTE DO PAINEL' vs 'INTERIOR DO PAINEL'), com texto do titulo da faixa em ha='left', va='top' no canto superior esquerdo.",
+    "linha_mecanica_vs_fio": "Conexao mecanica (eixo->sensor) deve ser visualmente distinta de fio eletrico: linha tracejada cor C['mech'] (#aa8800), com nota '(acoplamento mecanico, sem fio eletrico)'.",
+    "duas_filas_dentro_de_um_bloco": "Quando varios componentes (ex: AS5047P, Nucleo, Painel C3, Botoeira C3, Fonte, Rele) precisam caber numa mesma area retangular, dividir EXPLICITAMENTE em row1_y/row1_h e row2_y/row2_h com variaveis nomeadas, garantindo soma das alturas + margens <= altura total da area pai. Nao posicionar caixas por formulas improvisadas tipo 'iy0+ih-1.0-1.55' sem checar overlap com outras caixas que usam a mesma referencia (iy0+0.3 ...).",
+    "placeholders_zero_size": "Nunca deixar chamadas box(ax,...,0,0) como 'placeholder' -- box() exige argumento 'title' obrigatorio (TypeError) e mesmo se nao desse erro, sao codigo morto. Remover completamente."
+  },
+
+  "fluxo_de_debug_recomendado": [
+    "1. Rodar o script e corrigir erros de sintaxe/tipo primeiro (ex: TypeError de argumento faltando, ValueError de cor invalida).",
+    "2. Ler a imagem final inteira (Read) para visao geral.",
+    "3. Usar Pillow para recortar (crop) cada secao/bloco em PROPORCAO da imagem (im.size * fração), nao em pixels fixos -- assim o crop se adapta se o tamanho da figura mudar.",
+    "4. Inspecionar cada crop via Read; corrigir overlaps um a um (geralmente: titulo multi-linha colidindo com corpo, badges colidindo com texto, labels longos colidindo com caixas vizinhas).",
+    "5. Re-rodar e re-cropar so a area alterada para confirmar o fix antes de seguir.",
+    "6. No final, apagar todos os arquivos de crop temporarios (_v2_*.png etc.) antes de entregar."
+  ],
+
+  "armadilhas_comuns": [
+    "Hex de 3 digitos + sufixo de alpha (color+'33') -> string invalida.",
+    "Texto multi-linha ancorado va='top' mas offset do elemento seguinte calculado para 1 linha so.",
+    "Duas caixas adjacentes calculadas a partir da MESMA variavel base (ex: iy0) sem subtrair a altura ja usada -> overlap.",
+    "Labels de pino muito longos (>15-18 caracteres) atravessando para dentro de caixas vizinhas -- abreviar.",
+    "Esquecer de remover arquivos de crop temporarios do diretorio docs/."
+  ],
+
+  "convencao_arquivos": {
+    "fonte_de_verdade": "LIGACOES.md (netlist) -- qualquer numero/pino novo deve ser adicionado la primeiro.",
+    "scripts": "docs/layout_placas_final.py (LAYOUT DEFINITIVO: placas em grade de furos, ordem do cockpit). Diagrama de ligacoes posicional (estacoes como o cockpit) = docs/ligacoes_posicional.svg (SVG). Referencia visual do gabinete = docs/painel_visual_motorsport.svg. OBS: os antigos diagrama_ligacoes.py, layout_fisico*.py e layout_placas v1/v2/v3 foram REMOVIDOS.",
+    "saidas": "mesmo nome do script sem 'layout_'/'diagrama_' prefixo trocado por nome do PNG, sempre gerar .png + .pdf juntos",
+    "versionamento": "historico de arquitetura: v1 cubo rotativo -> v2 tudo no painel -> v3 grade de furos com canais -> FINAL (layout_placas_final.py, ordem do cockpit). As versoes antigas foram descartadas; o layout definitivo e o layout_placas_final.py."
+  },
+
+  "licoes_layout_final": {
+    "_descricao": "Licoes de docs/layout_placas_final.py (LAYOUT DEFINITIVO): 3 placas na ORDEM DO COCKPIT (painel esq | nucleo centro | botoeira dir; ref: painel_visual_motorsport.svg). Badges 1-40 (pedais = 39-40, adicionados a netlist 1-38 original).",
+    "rotulos_off_board": "Conexoes que SAEM da placa (USB, UART inter-placa, alimentacao) nunca devem ter texto crescendo PARA DENTRO do modulo (erro do v3). Solucao: desenhar a seta apontando para FORA (esquerda) com a ponta off-board, e o texto ancorado ha='right' a esquerda da seta; abrir espaco com draw_board(xpad_left=5, xpad_right=4.5). Rotulo curto no proprio pino (5V/3V3/GND/G17 TX1) ja basta; nao duplicar com seta verbosa.",
+    "fios_retos_por_alinhamento_de_linha": "Para fio sem cruzamento: colocar o pino de ORIGEM (lado do ESP, ex: c=8) e o de DESTINO (lado do periferico, ex: c=19) na MESMA linha r -> hwire() vira um unico segmento horizontal. Empilhar cada grupo (display 16-21, rele 22-24, botoes 27-32) em faixas de linhas distintas evita que os fios se cruzem.",
+    "grade_rapida": "Desenhar a malha de furos com UMA chamada ax.scatter(xs, ys, s=3) em vez de varios ax.plot -> muito mais rapido e leve.",
+    "gnd_comum_sem_numero": "Onde o GND e comum e nao tem numero dedicado na netlist (ex: GND da botoeira), desenhar Circle dark + texto 'GND' manual, em vez de inventar/reusar um badge numerado (evita badge 35/36 duplicado).",
+    "pedais_39_40": "Pedais entraram DEPOIS da netlist 1-38: accel = GPIO10 (badge 39), freio = GPIO9 (badge 40). Mantidos no LIGACOES.md; sempre estender a numeracao em vez de reusar.",
+    "saida_dupla_e_legenda": "Gerar sempre .png (dpi=150) + .pdf; legenda global (fig.legend) embaixo mapeando cor->tipo de fio; suptitle curto no topo. Apagar os crops temporarios (_p1/_p2/_p3.png) ao final."
+  },
+  "licoes_v3_grade_de_furos_e_canais": {
+    "_descricao": "Licoes especificas de docs/layout_placas_v3.py: layout onde TODO pino fica exatamente sobre um furo (coordenadas inteiras), retangulos de componentes nunca cobrem colunas/linhas reservadas como canais de roteamento, badges 1-38 em cada pino, e fios desenhados como rotas ortogonais (Manhattan).",
+
+    "modelo_de_grade": {
+      "comp(ax,c0,r0,c1,r1,label,color,fs,sub=None)": "Retangulo cobre os furos [c0..c1]x[r0..r1] inclusive; internamente vira FancyBboxPatch((c0-0.5, r0-0.5), w=(c1-c0)+1, h=(r1-r0)+1).",
+      "canais": "Colunas/linhas inteiras fora de qualquer intervalo [c0..c1]/[r0..r1] de qualquer comp() ficam livres -- usadas para rotear fios verticais/horizontais sem cruzar componentes.",
+      "pin(ax,c,r,num,color,label,dx,ha)": "Badge numerado (Circle + texto branco) centrado EXATAMENTE em (c,r); rotulo de texto ao lado (ha='left'/'right' + dx).",
+      "wire/straight/bus": "straight() para fios retos (mesma linha/coluna nas duas pontas); bus(p1,p2,via_row) para rota em U de 3 segmentos cruzando um canal horizontal/vertical livre."
+    },
+
+    "armadilha_critica_titulo_vs_pino_na_borda_superior": {
+      "problema": "comp() ancora o titulo em va='top' no topo do retangulo (title_y = y0+h-0.18, ou seja, y = r1+0.32). QUALQUER pino/badge colocado exatamente na linha r1 (borda superior do retangulo) fica DENTRO da faixa vertical do titulo (titulo ocupa de ~r1+0.32 ate ~r1-0.53 para 1 linha). Como o titulo e centralizado e geralmente e tao largo quanto o proprio retangulo, ele colide horizontalmente com qualquer badge/rotulo nessa linha, mesmo com titulo de 1 linha so.",
+      "fix_padrao": "Nunca colocar pinos na linha r1 de um comp(). Se o componente precisa de um conector na 'borda de cima' (ex: ESP32 <-> Display via canal), ENCOLHER o retangulo em 1 linha (r1 -> r1-1), deixando a linha r1 original como parte do canal livre, e colocar o badge nessa linha (agora fora do retangulo, sem colisao com o titulo).",
+      "fix_secundario": "Para pinos laterais (nao na borda superior) que ainda ficam perto do titulo (ex: linha r1-1 logo abaixo da linha do titulo), deslocar TODA a faixa de pinos 1 linha para baixo (ex: spi_rows de 29,27,25,23,21,19 -> 28,26,24,22,20,18, com o retangulo do componente estendido em 1 linha para baixo no lado oposto para acomodar)."
+    },
+
+    "armadilha_titulo_multilinha_e_sub": {
+      "problema": "label com '\\n' (2 linhas) OU uso de sub= some MUITO espaco vertical no topo do retangulo (cada linha extra ~0.85-1.0 unidades), facilmente colidindo com pinos 2-3 linhas abaixo da borda superior.",
+      "fix": "Preferir SEMPRE titulo de 1 linha (abreviar: 'W1 -> PLACA\\nPAINEL C3' -> 'W1 -> Painel C3'; 'ESP32-C3-0.42\\n(Painel)' -> 'ESP32-C3 (Painel)'; 'Modulo Rele\\n(setas)' -> 'Modulo Rele (setas)'). Informacoes extras (sub) devem virar uma linha italica pequena (fontsize~6.0) posicionada em uma area do retangulo SEM pinos -- normalmente perto da borda inferior, com va='bottom' ancorado perto de y0 (ex: ax.text(cx, y0+0.3, texto, va='bottom', style='italic', fontsize=6.0)). Confirmar que nenhum pino existe nas 1-2 linhas mais baixas do retangulo antes de usar essa area."
+    },
+
+    "armadilha_labels_adjacentes_mesma_linha": {
+      "problema": "Quando varios pinos ficam em colunas adjacentes (1 furo de distancia) na MESMA linha (ex: 6 pinos de um display conectando ao longo do canal y=15-16, ou 8 botoes ao longo de y=14-16), rotulos horizontais (ha='left'/'right') de 3+ caracteres colidem entre si formando uma 'sopa de letras' ilegivel.",
+      "fix": "Rotacionar os rotulos diagonalmente (rotation=55-60 graus, ha='left', va='bottom', ancorado um pouco acima/ao lado do badge: ax.text(col_x+0.08, row+0.2, label, rotation=55, fontsize=5.6-6.0)). Isso faz cada rotulo crescer na diagonal dentro de 1 unidade de largura de coluna, sem sobrepor o vizinho. Tambem encurtar labels para <=5 caracteres quando possivel (ex: 'farol-A'->'farA', 'alerta'->'alrt', 'limp.⚠'->'limp⚠') para garantir que o texto rotacionado caiba na altura disponivel ate o titulo do proximo bloco."
+    },
+
+    "armadilha_pinos_de_canais_diferentes_na_mesma_celula": {
+      "problema": "Dois conectores que terminam no MESMO furo (mesma coluna/linha de borda de um componente, ex: x=18 usado tanto pelo canal do Display quanto pelo canal do Modulo Rele) podem acabar na mesma celula (col,row) se as duas listas de linhas (disp_pins e rele_rows) usarem o mesmo numero de linha -- badges sobrepostos.",
+      "fix": "Antes de definir as linhas de um novo grupo de conexoes em um canal compartilhado, listar TODAS as linhas ja usadas por outros grupos que tocam a mesma coluna/borda, e escolher linhas livres (pode usar linhas no canal ACIMA/ABAIXO do retangulo, ja que o retangulo agora nao cobre mais a linha de borda -- ver 'armadilha_critica_titulo_vs_pino_na_borda_superior')."
+    },
+
+    "draw_board_titulo_da_placa": {
+      "problema": "O titulo geral da placa (ax.text no topo, fora da grade) e o subtitulo (tamanho/furos) podem colidir com a borda superior do retangulo de fundo (Rectangle((-0.5,-0.5), ncols, nrows)) se o ylim e os offsets de texto nao deixarem margem suficiente.",
+      "fix_aplicado": "ylim superior = nrows+2.6 (era nrows+1.6); titulo em y=nrows+2.0 (era +1.05); subtitulo em y=nrows+1.2 (era +0.45). Deixa ~1.4 unidades de folga entre o subtitulo e a borda do retangulo de fundo (que fica em y=nrows-0.5)."
+    },
+
+    "ordem_de_iteracao_recomendada": [
+      "1. Definir todos os comp() com titulos de 1 linha, sem sub, e SEM nenhum pino planejado na linha r1 (deixar r1 como parte do canal).",
+      "2. Definir as listas de pinos (spi_rows, w1_rows, etc.) evitando linhas de borda (r0/r1) de qualquer retangulo que tenha titulo ali.",
+      "3. Rodar, gerar PNG, cortar com PIL por proporcao e inspecionar cada placa.",
+      "4. Para colisoes de titulo vs pino de borda: encolher o retangulo 1 linha (mover r1) e/ou deslocar a faixa de pinos 1 linha.",
+      "5. Para 'sopa de letras' em labels adjacentes: rotacionar (rotation=55-60) e encurtar texto.",
+      "6. Para subtextos informativos: mover para italico fontsize~6.0 numa area sem pinos (geralmente perto de y0, va='bottom').",
+      "7. Apagar arquivos de crop temporarios (_p1.png, _p2.png, _p3.png, _full.png, _legend.png etc.) antes de entregar."
+    ]
+  }
+}
