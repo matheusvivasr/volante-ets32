@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "transport_rx_can.c"
+        "display.c"
+        "diag.c"
+        "oled.c"
+        "relay.c"
+        "lights.c"
+    INCLUDE_DIRS
+        "."
+)

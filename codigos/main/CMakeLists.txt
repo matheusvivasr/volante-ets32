@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "direcao/as5600.c"
+        "direcao/calib.c"
+        "pedais/pedais.c"
+        "botoeira/botoeira_rx.c"
+        "painel/telemetry.c"
+        "transporte/transport_can.c"
+        "usb/usb_hid.c"
+    INCLUDE_DIRS
+        "."
+        "direcao"
+        "pedais"
+        "botoeira"
+        "painel"
+        "transporte"
+        "usb"
+)
