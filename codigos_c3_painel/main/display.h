@@ -9,18 +9,19 @@
  * com o OLED embutido (GPIO5/6 I2C), USB nativo (18/19), console UART0 (20/21)
  * nem os strapping (2/8/9). Livres usados: 3,4,7,10 para o SPI e 0,1 para a UART.
  *
- * Ligação do GC9A01:
+ * Ligação do GC9A01 (reordenada em 2026-09-08: mesmos 4 pinos, papéis trocados
+ * pra fiação em linha reta — sem cruzar fio — nos pads 3,4,[5,6=OLED],7,[8,9=relé/BOOT],10):
  *   VCC -> 3V3      GND -> GND
- *   SCL -> GPIO4    SDA -> GPIO3
- *   CS  -> GPIO7    DC  -> GPIO10
+ *   CS  -> GPIO3    DC  -> GPIO4
+ *   SDA -> GPIO7    SCL -> GPIO10
  *   RST -> 3V3      BL  -> 3V3   (reset por software; backlight sempre ligado)
  */
 
 #define GC9A01_SPI_HOST   SPI2_HOST
-#define GC9A01_PIN_SCLK   4
-#define GC9A01_PIN_MOSI   3
-#define GC9A01_PIN_CS     7
-#define GC9A01_PIN_DC     10
+#define GC9A01_PIN_SCLK   10
+#define GC9A01_PIN_MOSI   7
+#define GC9A01_PIN_CS     3
+#define GC9A01_PIN_DC     4
 #define GC9A01_PIN_RST    (-1)   // -1 = sem pino de reset (usa reset por software)
 #define GC9A01_PIN_BL     (-1)   // -1 = backlight fixo no 3V3
 #define GC9A01_SPI_HZ     (10 * 1000 * 1000)   // 10 MHz. Borrão vertical do conteúdo na placa soldada = FALTA DE DESACOPLAMENTO no VCC/GND do display (não é clock): pôr 100nF+10uF colado (ver LIGACOES.md §5). Com o cap, 10 MHz roda limpo.

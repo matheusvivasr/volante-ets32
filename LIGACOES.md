@@ -2,7 +2,7 @@
 
 > Documento-fonte das conexões físicas do projeto (estilo netlist/esquemático).
 > **Mantido junto com o `codigos/volante_projeto.json`.** Atualizar a cada mudança de fiação.
-> Última atualização: **2026-06-15**.
+> Última atualização: **2026-09-08**.
 
 ---
 
@@ -101,10 +101,10 @@ INF (esq→dir): 3  4  5  6      7      8   9   10
 |---|---|---|
 | **UART1 → S3** TX | GPIO0 | S3 GPIO18 (RX) |
 | **UART1 → S3** RX | GPIO1 | S3 GPIO17 (TX) |
-| **Display** MOSI/SDA | GPIO3 | GC9A01 `SDA` |
-| **Display** SCLK/SCL | GPIO4 | GC9A01 `SCL` |
-| **Display** CS | GPIO7 | GC9A01 `CS` |
-| **Display** DC | GPIO10 | GC9A01 `DC` |
+| **Display** CS | GPIO3 | GC9A01 `CS` |
+| **Display** DC | GPIO4 | GC9A01 `DC` |
+| **Display** MOSI/SDA | GPIO7 | GC9A01 `SDA` |
+| **Display** SCLK/SCL | GPIO10 | GC9A01 `SCL` |
 | OLED 0.42 (interno) SDA/SCL | GPIO5 / GPIO6 | OLED embutido (I2C) |
 | **Relé** IN1 (seta esq) | GPIO2 | Módulo relé `IN1` |
 | **Relé** IN2 (seta dir) | GPIO8 | Módulo relé `IN2` |
@@ -124,11 +124,19 @@ Silk *visto de frente (tela), pads embaixo*: `RST CS DC SDA SCL GND VCC`
 |---|---|
 | `VCC` | 3V3 |
 | `GND` | GND |
-| `SCL` | GPIO4 |
-| `SDA` | GPIO3 |
-| `DC`  | GPIO10 |
-| `CS`  | GPIO7 |
+| `SCL` | GPIO10 |
+| `SDA` | GPIO7 |
+| `DC`  | GPIO4 |
+| `CS`  | GPIO3 |
 | `RST` | 3V3 (reset por software) |
+
+> **Fiação reordenada em 2026-09-08** pra rodar em linha reta na fileira de baixo do
+> C3 (`3,4,[5,6=OLED],7,[8,9=relé/BOOT],10`), sem cruzar fio: como o SPI do ESP32 é
+> roteado por software (GPIO matrix), qualquer papel (CS/DC/SDA/SCL) pode ir em
+> qualquer um desses 4 pinos — só o `#define` em `display.h` precisa acompanhar.
+> Pinos físicos usados continuam os mesmos de sempre (3,4,7,10); só o papel de cada
+> um mudou. GPIO5/6 (OLED embutido) e GPIO8 (relé seta direita) **não entraram** na
+> troca — não têm pino livre pra ceder (ver mapa completo no `codigos_c3_painel/main/*.h`).
 
 > **Desacoplamento OBRIGATÓRIO (descoberto 2026-06-14, na validação da placa soldada):**
 > soldar **100 nF (cerâmico "104") + 10 µF** entre `VCC` e `GND`, colados nos pads do
