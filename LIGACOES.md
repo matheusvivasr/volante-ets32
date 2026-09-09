@@ -12,7 +12,7 @@
                     ┌──────────────────────────────────────────────┐
    PC (ETS2) ◄──────┤ USB nativo  : HID gamepad (eixo + botões)     │
         ▲    USB ───┤ USB CH343   : COM3 (flash/console/telemetria) │  ESP32-S3
-        │           │ CAN(TWAI) ──► barramento SPI ──► AS5047P       │  (núcleo)
+        │           │ CAN(TWAI) ──► barramento I2C ──► AS5600        │  (núcleo)
         │           │                                                 │
    telemetria       └──────────────────────────────────────────────┘
    (Python)                 │ CANH/CANL (barramento único)
@@ -69,15 +69,16 @@ INF: GND GND 19 20 21 47 48 45 00 35 36 37 38 39 40 41 42 02 01 RX  TX  GND
 | USB nativo D− / D+ | GPIO19 / GPIO20 | porta USB nativa → HID |
 | **CAN (TWAI) TX** *(era UART1 → Painel)* | GPIO17 | SN65HVD230 `D` |
 | **CAN (TWAI) RX** *(era UART1 → Painel)* | GPIO18 | SN65HVD230 `R` |
-| **SPI AS5047P** CLK | GPIO4 | AS5047P `CLK` |
-| **SPI AS5047P** MISO | GPIO5 | AS5047P `MISO` (pull-up interno) |
-| **SPI AS5047P** MOSI | GPIO6 | AS5047P `MOSI` |
-| **SPI AS5047P** CS | GPIO7 | AS5047P `CSn` |
+| **I2C AS5600** SDA | GPIO6 | AS5600 `SDA` |
+| **I2C AS5600** SCL | GPIO7 | AS5600 `SCL` |
+| ~~SPI AS5047P CLK~~ **livre** (sensor trocado pro AS5600, I2C — ver §7.1) | GPIO4 | — |
+| ~~SPI AS5047P MISO~~ **livre** | GPIO5 | — |
 | Botão BOOT (calibração direção / HID btn 16) | GPIO0 | — (botão onboard) |
 | ~~UART2 → Botoeira~~ **livre** (Botoeira migrou pro mesmo barramento CAN acima) | GPIO15 / GPIO16 | — |
 | **Pedal Acelerador** | GPIO10 *(ADC1_CH9)* | botão→GND (hoje) / potenciômetro (futuro) |
 | **Pedal Freio** | GPIO9 *(ADC1_CH8)* | botão→GND (hoje) / potenciômetro (futuro) |
-| Alimentação sensor | `3V3` / `GND` | AS5047P `3V3` / `GND` |
+| Alimentação sensor | `3V3` / `GND` | AS5600 `VCC` / `GND` |
+| `DIR` do AS5600 | GND | fixa sentido de contagem |
 
 > Jumper `IN-OUT` (perto de GPIO11/12) = **ABERTO**: pino 5V não dá saída. Não mexer.
 
@@ -168,11 +169,35 @@ Silk *visto de frente (tela), pads embaixo*: `RST CS DC SDA SCL GND VCC`
 
 ---
 
-## 7. AS5047P-TS_EK_AB (sensor de ângulo, SPI)
+## 7. Sensor de ângulo: AS5600 (I2C)
 
-> **Fonte da sequência** para (re)programar os pinos em `codigos/main/direcao/as5047.h`,
-> mantendo **G4–G7 alinhados** com o header P1 do sensor. Confirmado no datasheet
-> AS5047P (DS000324) e no Operation Manual do EK_AB.
+> **Status: sensor ATIVO desde 2026-06-16** (commit `230008a`), substituindo o
+> AS5047P (SPI) da §7.1. Fonte do driver: `codigos/main/direcao/as5600.h`.
+
+| AS5600 | S3 |
+|---|---|
+| `VCC` | 3V3 |
+| `GND` | GND |
+| `SDA` | GPIO6 |
+| `SCL` | GPIO7 |
+| `DIR` | GND (fixa o sentido de contagem) |
+| `OUT`, `GPO` | não usados |
+
+Endereço I2C fixo `0x36`. Ângulo bruto: `RAW ANGLE` (regs `0x0C`/`0x0D`, 12 bits,
+4096 contagens/volta — o AS5047P antigo tinha 16384, 14 bits; multi-turn e
+calibração usam a mesma lógica, só muda o CPR). Status do ímã: reg `0x0B`
+(`MD`=detectado, `ML`=fraco, `MH`=forte). Ímã diametral centrado sobre o chip,
+gap 0,5–3 mm.
+
+**GPIO4 e GPIO5 (antigo `CLK`/`MISO` do AS5047P) ficaram livres** — o AS5600 é
+I2C (só 2 fios de sinal) contra os 4 do SPI do sensor anterior.
+
+### 7.1 Sensor anterior (arquivado): AS5047P-TS_EK_AB (SPI)
+
+> Trocado pelo AS5600 em 2026-06-16. Código (`as5047.c/.h`) mantido no disco,
+> **fora do build**, caso o projeto volte a usar um encoder SPI de maior
+> resolução. Fonte da sequência de pinos: datasheet AS5047P (DS000324) e
+> Operation Manual do EK_AB.
 
 **Header P1 = 2×8. Usar SÓ a fileira de cima (pinos 1–8).** A de baixo (pinos 9–16
 = `B A I/PWM TEST NC W/PWM V U`) **não é usada**.
@@ -263,7 +288,7 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 
 ```
   ZONA COLUNA/EIXO ───────────┐        ZONA DASHBOARD ───────────┐
-  AS5047P (no eixo) ─SPI 8MHz──┤        Painel C3 + GC9A01 + OLED │
+  AS5600 (no eixo) ─I2C────────┤        Painel C3 + GC9A01 + OLED │
    ≤10cm─ ESP32-S3 (host) ◄────┼──CAN───+ 2 relés + 2 LEDs        │
             │  +FFB futuro      │ (CANH/CANL, mesmo barramento    │
             │ pedais ~1-1.5m    │  da Botoeira) ZONA CONSOLE LATERAL ┤
@@ -275,7 +300,7 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 
 | Enlace | Sinais | Veloc. | Comprimento ± | Crít. | Onde |
 |---|---|---|---|---|---|
-| S3 ↔ AS5047P | CLK/MISO/MOSI/CSn +3V3/GND | 8 MHz | **≤10 cm** ideal, máx ~20-30 cm | 🔴 | **S3 colado na coluna** (sensor preso ao eixo) |
+| S3 ↔ AS5600 | SDA/SCL +3V3/GND | I2C | **≤10 cm** ideal, máx ~20-30 cm | 🔴 | **S3 colado na coluna** (sensor preso ao eixo) |
 | S3 ↔ Painel ↔ Botoeira (**mesmo barramento CAN**) | CANH/CANL +GND | 500 kbps (TWAI) | dezenas de m (típico ≤100 m @500kbps, ISO11898) | 🟢 | qualquer nó longe OK; 120Ω só nas 2 pontas físicas (§10) |
 | S3 ↔ Pedais (botão hoje) | 2 GPIO +GND | digital | ≤ ~1 m (>1 m: pull-up ext. 4k7 +100nF) | 🟡 | chão ~1-1.5 m, ok p/ botão |
 | S3 ↔ Pedais (pot futuro) | 2 ADC +3V3/GND | analóg. | **≤ ~30 cm ao ADC** | 🔴 | NÃO esticar → **satélite C3 no chão** |
@@ -290,7 +315,7 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 **Fio (independe da topologia):**
 
 - CAN longo: CANH/CANL **trançados entre si**, GND à parte (não precisa trançar com o par). 120Ω só nas 2 pontas físicas do barramento (§10) — nunca em nó do meio.
-- SPI do sensor: o mais curto possível; p/ esticar, baixe `AS5047_SPI_HZ` (8 → 1-4 MHz).
+- I2C do sensor (AS5600): o mais curto possível; cabo longo pede pull-up externo mais forte nos SDA/SCL.
 - 5V: bitola pela corrente + comprimento (queda), não pela velocidade.
 
 > **Status (2026-09-08):** o CAN já é o transporte ativo no firmware dos 3 nós

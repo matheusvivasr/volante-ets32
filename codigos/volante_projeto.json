@@ -3,7 +3,7 @@
     "nome": "Volante DIY modular para simuladores (ETS2)",
     "objetivo": "Construir um volante de simulador modular, de baixo custo, expansivel por etapas funcionais, com force feedback (FFB) planejado para fase futura.",
     "jogo_alvo": "Euro Truck Simulator 2",
-    "manutencao_deste_json": "Este JSON e a memoria compacta compartilhada/backup do projeto (sobrevive ao fim de uma sessao de chat). O assistente deve mante-lo atualizado a cada mudanca relevante de decisao/hardware/firmware. Existe tambem o D:/USP/Volante/LIGACOES.md (mapa de ligacoes fisicas estilo netlist/esquematico) que deve ser mantido EM PARALELO a cada mudanca de fiacao.",
+    "manutencao_deste_json": "Este JSON e a memoria compacta compartilhada/backup do projeto (sobrevive ao fim de uma sessao de chat). O assistente deve mante-lo atualizado a cada mudanca relevante de decisao/hardware/firmware. Existe tambem o D:/USP/Matheus/the-esp32-project/volante/LIGACOES.md (mapa de ligacoes fisicas estilo netlist/esquematico) que deve ser mantido EM PARALELO a cada mudanca de fiacao.",
     "principios": [
       "Modularidade: cada modulo funcional e um no independente, adicionavel por etapas.",
       "Determinismo: loop critico de FFB roda LOCAL na S3, nunca distribuido pelo barramento.",
@@ -40,13 +40,13 @@
       "idf.customExtraPaths inclui toolchain (20241119), cmake e ninja para builds via terminal PowerShell."
     ],
     "scripts_de_build_e_flash": {
-      "flash_s3": "D:\\USP\\Volante\\flash_s3.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
-      "flash_c3_painel": "D:\\USP\\Volante\\flash_c3_painel.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
-      "build_s3": "D:\\USP\\Volante\\build_s3.ps1 (SO compila e sai; sem flash, sem monitor)",
-      "build_c3": "D:\\USP\\Volante\\build_c3.ps1 (SO compila e sai; sem flash, sem monitor)",
-      "flash_c3_nomon": "D:\\USP\\Volante\\flash_c3_nomon.ps1 -Port COMx (grava e SAI, SEM abrir monitor — evita ficar pendurado esperando telemetria/jogo)",
-      "flash_s3_nomon": "D:\\USP\\Volante\\flash_s3_nomon.ps1 -Port COMx (S3: grava e SAI, sem monitor)",
-      "monitor_s3": "D:\\USP\\Volante\\monitor_s3.ps1 -Port COMx (S3: SO abre o monitor serial p/ ver logs, ex.: angulo do AS5047P; sai com Ctrl+])",
+      "flash_s3": "D:\\USP\\Matheus\\the-esp32-project\\volante\\flash_s3.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
+      "flash_c3_painel": "D:\\USP\\Matheus\\the-esp32-project\\volante\\flash_c3_painel.ps1 -Port COMx (faz flash + MONITOR; o monitor fica preso lendo a serial)",
+      "build_s3": "D:\\USP\\Matheus\\the-esp32-project\\volante\\build_s3.ps1 (SO compila e sai; sem flash, sem monitor)",
+      "build_c3": "D:\\USP\\Matheus\\the-esp32-project\\volante\\build_c3.ps1 (SO compila e sai; sem flash, sem monitor)",
+      "flash_c3_nomon": "D:\\USP\\Matheus\\the-esp32-project\\volante\\flash_c3_nomon.ps1 -Port COMx (grava e SAI, SEM abrir monitor — evita ficar pendurado esperando telemetria/jogo)",
+      "flash_s3_nomon": "D:\\USP\\Matheus\\the-esp32-project\\volante\\flash_s3_nomon.ps1 -Port COMx (S3: grava e SAI, sem monitor)",
+      "monitor_s3": "D:\\USP\\Matheus\\the-esp32-project\\volante\\monitor_s3.ps1 -Port COMx (S3: SO abre o monitor serial p/ ver logs, ex.: angulo do sensor AS5600; sai com Ctrl+])",
       "nota_execucao": "Para rodar via assistente sem pendurar: invocar o .ps1 num powershell-filho (powershell -NoProfile -ExecutionPolicy Bypass -File <script>) com Tee-Object p/ log. NUNCA usar acoes com 'monitor' em execucao automatizada (o monitor nunca retorna).",
       "build_manual_s3": "PowerShell: set IDF_PATH + PATH do toolchain xtensa + python idf.py build (ver build_s3.ps1)",
       "build_manual_c3": "Igual ao S3 mas com toolchain riscv32 e pasta codigos_c3_painel (ver build_c3.ps1)"
@@ -61,18 +61,19 @@
   },
 
   "estrutura_de_arquivos": {
-    "raiz": "D:\\USP\\Volante",
+    "raiz": "D:\\USP\\Matheus\\the-esp32-project\\volante",
     "firmware_s3": {
       "pasta": "codigos\\",
       "status": "COMPILADO E GRAVADO OK (esp32s3, IDF v5.4, COM3 em 2026-06-14). Etapa 2 (volante HID) com direcao+calibracao+pedais+botoeira+painel. Falta validar em hardware no monitor/joy.cpl.",
-      "_organizacao_main": "main/ organizado em sub-pastas por subsistema (2026-06-14): direcao/ (as5047, calib), pedais/ (pedais), botoeira/ (botoeira_rx), painel/ (telemetry), transporte/ (transport, transport_can), usb/ (usb_hid). main.c e idf_component.yml na raiz. CMakeLists usa SRCS com caminho relativo + INCLUDE_DIRS com cada sub-pasta, entao os #include continuam por nome simples. BUILD OK.",
+      "_organizacao_main": "main/ organizado em sub-pastas por subsistema (2026-06-14): direcao/ (as5600 ATIVO desde 2026-06-16 + as5047 fora do build + calib), pedais/ (pedais), botoeira/ (botoeira_rx), painel/ (telemetry), transporte/ (transport fora do build + transport_can ATIVO), usb/ (usb_hid). main.c e idf_component.yml na raiz. CMakeLists usa SRCS com caminho relativo + INCLUDE_DIRS com cada sub-pasta, entao os #include continuam por nome simples. BUILD OK.",
       "arquivos": {
         "CMakeLists.txt": "raiz do projeto IDF, target esp32s3",
         "main/CMakeLists.txt": "componente main: SRCS com caminhos das sub-pastas (direcao/, pedais/, botoeira/, painel/, transporte/, usb/) + INCLUDE_DIRS de cada uma. Sem REQUIRES declarado de proposito (fallback do IDF da acesso a TODOS os componentes, incluindo o novo components/can_bus, sem precisar listar). transport_can.c e o ATIVO no SRCS desde 2026-09-08; transport.c (UART) fica fora, guardado como backend alternativo. Ver CMakeLists.txt de topo: set(EXTRA_COMPONENT_DIRS ../components).",
         "sdkconfig": "gerado pelo set-target esp32s3",
-        "main/main.c": "app_main: nvs_flash_init (calibracao) + transport + telemetry + as5047 + calib + pedais + botoeira_rx + usb_hid. hid_task (50Hz): calib_steering (X=direcao, multi-turn+NVS), calib_button_poll (roteiro BOOT), pedais_get (Y=accel, Rx=freio), botoeira_get (Z/Rz=visao, btns 1-8). pc_rx_task (telemetria do PC via UART0) + reemit_task (0x100/0x101/0x102 a cada 50ms p/ o painel C3) + angle_task (loga angulo a 1Hz).",
-        "main/direcao/as5047.c/.h": "Driver SPI do sensor de angulo AS5047P (14 bits). SPI2_HOST modo 1, 8MHz. Pinos: CLK=GPIO4, MISO=GPIO5, MOSI=GPIO6, CSn=GPIO7. Le ANGLECOM (cmd 0xFFFF) com leitura pipelined (2 frames), valida paridade par + error-flag. as5047_read_raw() 0..16383 / as5047_read_deg() 0..360 (-1 em erro). Placa: AS5047P-TS_EK_AB (AMS). Pull-up interno no MISO (GPIO5): sem sensor a linha vai p/ 0xFFFF (error-flag) -> read retorna -1, evitando leitura de pino flutuante (que travava o eixo HID no maximo).",
-        "main/direcao/calib.c/.h": "Calibracao do eixo de direcao pelo botao BOOT (GPIO0) + multi-turn. O AS5047P e absoluto em 1 volta; calib conta voltas (wrap a 50Hz) p/ angulo continuo, origem = angulo no boot (mola centra ao ligar). Roteiro: segurar BOOT >1.5s entra; cliques curtos capturam esq->dir->centro; salva em NVS (ns 'volante', key 'steer_cal'); segurar cancela. Default sem calib = 900 graus lock-to-lock. calib_steering(raw)->int8 -127..127; calib_button_poll(); calib_hid_button() = BOOT como btn16 so em IDLE. (2026-06-14.)",
+        "main/main.c": "app_main: nvs_flash_init (calibracao) + transport + telemetry + as5600 + calib + pedais + botoeira_rx + usb_hid. hid_task (50Hz): calib_steering (X=direcao, multi-turn+NVS), calib_button_poll (roteiro BOOT), pedais_get (Y=accel, Rx=freio), botoeira_get (Z/Rz=visao, btns 1-8). pc_rx_task (telemetria do PC via UART0) + reemit_task (0x100/0x101/0x102 a cada 50ms p/ o painel C3) + angle_task (loga angulo a 1Hz).",
+        "main/direcao/as5600.c/.h": "Driver I2C ATIVO do sensor de angulo AS5600 (12 bits, endereco 0x36). Le RAW ANGLE (regs 0x0C/0x0D). as5600_read_raw() 0..4095 / as5600_read_deg() 0..360 (-1 em erro de I2C). Pinos: SDA=GPIO6, SCL=GPIO7, DIR=GND. Trocou o AS5047P em 2026-06-16.",
+        "main/direcao/as5047.c/.h": "Driver SPI do sensor de angulo AS5047P (14 bits) - sensor ANTERIOR, FORA do build desde 2026-06-16 (trocado pelo AS5600, mantido no disco como backend alternativo). SPI2_HOST modo 1, 8MHz. Pinos: CLK=GPIO4, MISO=GPIO5, MOSI=GPIO6, CSn=GPIO7. Le ANGLECOM (cmd 0xFFFF) com leitura pipelined (2 frames), valida paridade par + error-flag. as5047_read_raw() 0..16383 / as5047_read_deg() 0..360 (-1 em erro). Placa: AS5047P-TS_EK_AB (AMS).",
+        "main/direcao/calib.c/.h": "Calibracao do eixo de direcao pelo botao BOOT (GPIO0) + multi-turn. O sensor (AS5600, antes AS5047P) e absoluto em 1 volta; calib conta voltas (wrap a 50Hz) p/ angulo continuo, origem = angulo no boot (mola centra ao ligar). Roteiro: segurar BOOT >1.5s entra; cliques curtos capturam esq->dir->centro; salva em NVS (ns 'volante', key 'steer_cal'); segurar cancela. Default sem calib = 900 graus lock-to-lock. calib_steering(raw)->int8 -127..127; calib_button_poll(); calib_hid_button() = BOOT como btn16 so em IDLE. (2026-06-14.)",
         "main/pedais/pedais.c/.h": "Acelerador/freio na propria S3. Macro PEDAIS_USE_ADC (pedais.h): 0=2 BOTOES (GPIO->botao->GND, pull-up, ativo-baixo), 1=2 POTENCIOMETROS (ADC1). Pinos accel=GPIO10 (ADC1_CH9), freio=GPIO9 (ADC1_CH8) - mesmos nos dois modos. Saida -127 (repouso) .. +127 (fundo). pedais_get(&accel,&brake). Futuro: pots em molas (cursor em 3V3/GND/GPIO, NUNCA 5V). (2026-06-14.)",
         "main/usb/usb_hid.c/.h": "S3 como GAMEPAD USB HID pela USB NATIVA. TinyUSB (componente espressif/esp_tinyusb). Eixos: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT. usb_hid_send(steer,throttle,brake,view_x,view_y,buttons) a 50Hz. VALIDADO NO WINDOWS 2026-06-10 (joy.cpl). Teste: plugar a USB NATIVA (separada do CH343/COM3).",
         "main/botoeira/botoeira_rx.c/.h": "S3 recebe o estado da Botoeira (msg 0x040) por UART2 (TX=GPIO15, RX=GPIO16), mesmo framing. Parseia [botoes uint16][view_x int8][view_y int8] e guarda; o hid_task injeta nos botoes HID (bits 0-7) e nos eixos Z/Rz (visao). (2026-06-10, etapa 5.)",
@@ -275,16 +276,18 @@
       "critico": true,
       "status_firmware": "COMPILADO E PRONTO PARA FLASH (firmware base da etapa 1)",
       "sensor_angulo": {
-        "escolhido": "AS5047P",
-        "placa": "AS5047P-TS_EK_AB (adapter board oficial da AMS). Em maos desde 2026-06-10.",
-        "interface": "SPI",
-        "resolucao_bits": 14,
-        "alternativa_descartada": "AS5600 (I2C, 12 bits, lento demais para FFB e endereco fixo)",
-        "montagem": "ima diametral centralizado no eixo, sobre o chip, gap ~1-2mm, alinhamento mecanico critico para linearidade",
-        "status": "CODIGO PRONTO E GRAVADO NA S3 (2026-06-10), mas NAO TESTADO: o modulo EK_AB veio SEM os pinos soldados. Teste adiado p/ quando soldar (+ ter a carcaca/eixo p/ montar o ima). O driver fica integrado no firmware principal da S3 (angle_task loga 'leitura invalida' ate o sensor estar ligado - sem efeito colateral). Calibracao (zero/range/gap) PULADA de proposito ate ter a mecanica.",
-        "ligacao_spi_S3": "Usa a fileira de CIMA do header 8x2 da EK_AB: S3 3V3->3V3, S3 GND->GND, S3 GPIO4->CLK, S3 GPIO5->MISO, S3 GPIO6->MOSI, S3 GPIO7->CSn. Configurar a placa p/ 3.3V (JP1 no lado 3V3, alimentar pelo pino 3V3, deixar 5V solto) p/ o MISO voltar em 3.3V. Fileira de baixo (A,B,I/PWM,TEST,W/PWM) NAO usada."
+        "escolhido": "AS5600 (trocado do AS5047P em 2026-06-16, commit 230008a; motivo da troca nao registrado nesta sessao)",
+        "interface": "I2C, endereco fixo 0x36",
+        "resolucao_bits": 12,
+        "ligacao_S3": "S3 3V3->VCC, S3 GND->GND, S3 GPIO6->SDA, S3 GPIO7->SCL, DIR->GND (fixa sentido). Pinos GPIO4/GPIO5 (antigo CLK/MISO do AS5047P) ficaram LIVRES.",
+        "montagem": "ima diametral centralizado no eixo, sobre o chip, gap 0.5-3mm, alinhamento mecanico critico para linearidade",
+        "driver": "codigos/main/direcao/as5600.c/.h - as5600_read_raw() 0..4095 / as5600_read_deg() 0..360 (-1 em erro de I2C). Multi-turn e calibracao (calib.c) iguais ao esquema anterior, so muda o CPR (4096 em vez de 16384).",
+        "sensor_anterior": {
+          "nome": "AS5047P-TS_EK_AB (SPI, 14 bits, adapter board AMS)",
+          "status": "Codigo (as5047.c/.h) mantido no disco, FORA do build, caso volte a fazer sentido um encoder SPI de maior resolucao. Motivo original da escolha (jun/2026): FFB futuro + maior resolucao (a alternativa AS5600 tinha sido descartada nessa epoca por parecer 'lento demais para FFB e endereco fixo' - a troca posterior pro AS5600 reverteu esse julgamento, motivo nao documentado)."
+        }
       },
-      "ligacao": "AS5047P e driver do motor FFB ligados DIRETO na S3 (SPI/PWM), nunca em no remoto.",
+      "ligacao": "AS5600 e driver do motor FFB ligados DIRETO na S3 (I2C/PWM), nunca em no remoto.",
       "inputs_locais": "alguns botoes no proprio volante"
     },
     {
@@ -347,10 +350,10 @@
   },
 
   "ffb": {
-    "regra_de_ouro": "Loop de FFB local na S3, nunca distribuido. Sensor de angulo (AS5047P) e driver do motor diretos na S3 (SPI/PWM). Malha de controle de torque em timer de alta frequencia (1kHz+). Calculo de torque nunca depende do barramento CAN.",
+    "regra_de_ouro": "Loop de FFB local na S3, nunca distribuido. Sensor de angulo (AS5600) e driver do motor diretos na S3 (I2C/PWM). Malha de controle de torque em timer de alta frequencia (1kHz+). Calculo de torque nunca depende do barramento CAN.",
     "componentes": [
       "Motor DC + driver (BTS7960 / VNH ou servo industrial com driver) controlado por PWM da S3",
-      "Encoder = o proprio AS5047P",
+      "Encoder = o proprio AS5600",
       "Telemetria do ETS2 via plugin SDK -> dados enviados a S3 por serial/USB"
     ]
   },
@@ -397,7 +400,8 @@
     "Gatilho de migracao para CAN: enquanto houver ATE 2 modulos satelite ligados a S3 (painel + botoeira), manter UART ponto-a-ponto. No momento em que um 3o modulo satelite for adicionado (qualquer tipo, ainda nao definido), migrar IMEDIATAMENTE para CAN/TWAI (transport_can.c / transport_rx_can.c, ja guardados fora do build), em vez de abrir uma 3a UART dedicada. Formato de mensagem (ID+payload+seq+CRC) e identico nos dois meios, IDs UART = IDs CAN, facilitando a troca. (Decisao 2026-06-13.)",
     "Pedais provisorios na PROPRIA S3: acelerador=GPIO10 (ADC1_CH9) e freio=GPIO9 (ADC1_CH8). Hoje sao 2 BOTOES (GPIO->botao->GND, pull-up interno, ativo-baixo); futuramente viram 2 POTENCIOMETROS em molas nos mesmos pinos (ADC-capazes). Troca por macro PEDAIS_USE_ADC em pedais.h (0=botao, 1=ADC). Cursor do pot em 3V3/GND/GPIO, NUNCA 5V. Modulo pedais.c. (Decisao 2026-06-14.)",
     "Calibracao da direcao pelo botao BOOT (GPIO0): segurar >1.5s entra em modo calibracao; cliques curtos capturam batente esquerdo -> direito -> centro; salva em NVS (namespace 'volante', chave 'steer_cal'); segurar >1.5s durante cancela. O AS5047P e absoluto em 1 volta, entao calib.c faz multi-turn (conta voltas por wrap a 50Hz) com origem = angulo no boot (mola centra o volante ao ligar). Default sem calibracao = 900 graus lock-to-lock. Mapa de eixos HID: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT (so fora da calibracao). Modulo calib.c. (Decisao 2026-06-14.)",
-    "Migracao pra CAN executada (nao so planejada) em 2026-09-08: os 3 nos passaram a compilar transport_can.c/transport_rx_can.c/transport_tx_can.c (antes so guardados). Extraido um componente ESP-IDF compartilhado, components/can_bus/ (referenciado nos 3 projetos via EXTRA_COMPONENT_DIRS), pra nao reimplementar o driver TWAI por no - e o padrao obrigatorio pra qualquer no CAN futuro. Verificado de verdade so no Painel C3 (unico na bancada): build+flash+boot log confirmando o backend CAN rodando. Fiacao fisica do SN65HVD230 (ja em maos, com os 120 ohm) fica pra proxima sessao com mais placas acessiveis. Documentado tambem em LIGACOES.md secao 10 (fonte oficial de pinagem) e README.md."
+    "Migracao pra CAN executada (nao so planejada) em 2026-09-08: os 3 nos passaram a compilar transport_can.c/transport_rx_can.c/transport_tx_can.c (antes so guardados). Extraido um componente ESP-IDF compartilhado, components/can_bus/ (referenciado nos 3 projetos via EXTRA_COMPONENT_DIRS), pra nao reimplementar o driver TWAI por no - e o padrao obrigatorio pra qualquer no CAN futuro. Verificado de verdade so no Painel C3 (unico na bancada): build+flash+boot log confirmando o backend CAN rodando. Fiacao fisica do SN65HVD230 (ja em maos, com os 120 ohm) fica pra proxima sessao com mais placas acessiveis. Documentado tambem em LIGACOES.md secao 10 (fonte oficial de pinagem) e README.md.",
+    "Sensor de angulo trocado do AS5047P (SPI) pro AS5600 (I2C) em 2026-06-16 (commit 230008a) - motivo da troca nao ficou registrado em nenhum documento desta sessao, so o fato de que aconteceu. Pinos GPIO4/GPIO5 do S3 (antigo CLK/MISO do AS5047P) ficaram livres; o AS5600 usa so GPIO6=SDA/GPIO7=SCL. as5047.c/.h mantido no disco fora do build. Este JSON, LIGACOES.md e README.md corrigidos em 2026-09-08 pra refletir isso (estavam desatualizados, ainda descrevendo o AS5047P como sensor ativo)."
   ],
 
   "pendencias_a_definir": [
@@ -405,7 +409,7 @@
     "Numero final de botoes/eixos",
     "Escolha do motor e driver de FFB (define a TENSAO da fonte: correia/DC escovado -> 12V alta-corrente tipo 12V/30A; direct-drive servo/BLDC -> 24V tipo 24V/10A. Dimensionar pelo PICO do motor +30-50%. Motor em fonte PROPRIA, separada da logica).",
     "Alimentacao externa do rig logico (regra definida, falta montar): fonte 12/24V -> buck ajustado p/ 5,0V -> trilho 5V+GND distribuido por cabo USB-C power-only (so + e -) injetando 5V no VBUS de cada C3. S3 no USB do PC, FORA do 5V externo, GND comum. Cap 220-470uF no rail dos reles. Nunca dois 5V na mesma placa (desligar 5V externo da C3 ao grava-la pelo PC).",
-    "O que soldar (a confirmar): cluster do Painel C3 (display GC9A01, LEDs de farol GPIO20/21, fios IN dos reles GPIO2/8) pode SOLDAR — congelado e validado. Links inter-modulo (S3<->C3, alimentacao) e a S3 INTEIRA ficam em conector/protoboard, pois a S3 ainda cresce (HID USB, AS5047P, FFB) e o link migra p/ CAN.",
+    "O que soldar (a confirmar): cluster do Painel C3 (display GC9A01, LEDs de farol GPIO20/21, fios IN dos reles GPIO2/8) pode SOLDAR — congelado e validado. Links inter-modulo (S3<->C3, alimentacao) e a S3 INTEIRA ficam em conector/protoboard, pois a S3 ainda cresce (HID USB, AS5600, FFB) e o link ja migrou p/ CAN em software (fiacao fisica pendente).",
     "Mecanica do volante (eixo, rolamentos, acoplamento do motor)",
     "Conectores fisicos definitivos dos modulos",
     "Plugin scs-telemetry.dll (v1.12.1 Win64) INSTALADO em D:/sssss/steamapps/common/Euro Truck Simulator 2/bin/win_x64/plugins/ (jun/2026). Falta: abrir o ETS2 e validar telemetria REAL (so testado com --sim ate agora). telemetry_reader.py ganhou modo --debug que imprime os campos crus p/ calibrar offsets ao vivo (especialmente os bits de luzes/setas).",
@@ -415,7 +419,7 @@
   "proximos_passos_codigo": [
     "ETAPA 1 - PENDENTE: gravar firmware na S3 e C3, ligar os 3 fios e o display OLED, rodar o simulador Python e validar exibicao.",
     "ETAPA 1 - PENDENTE: instalar scs-sdk-plugin no ETS2 e validar leitura de telemetria real.",
-    "ETAPA 2: adicionar leitura do AS5047P por SPI na S3 e stack USB HID (gamepad com pelo menos 1 eixo de direcao).",
+    "ETAPA 2: adicionar leitura do sensor de angulo (hoje AS5600, I2C) na S3 e stack USB HID (gamepad com pelo menos 1 eixo de direcao). [item historico - etapa 2 ja concluida]",
     "GERAL: implementar heartbeat (0x7FF) e logica de timeout por no na S3.",
     "GERAL: cabear o SN65HVD230 no Painel C3 (ja na bancada) e, quando S3/Botoeira voltarem a bancada, nos dois - so entao o barramento CAN carrega trafego de verdade (software ja pronto, ver arquitetura.barramento_can)."
   ]

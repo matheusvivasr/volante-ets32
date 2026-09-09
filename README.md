@@ -37,8 +37,8 @@ bancada — ver `LIGACOES.md` §10 pro status e a receita de nó novo.
 | 1 | **ESP32-S3** (testado: N16R8, 16 MB flash / 8 MB PSRAM) | Núcleo/host USB-HID + leitura do volante e pedais |
 | 1 | **ESP32-C3** (placa "0.42 OLED") | Painel de instrumentos |
 | 1 | **ESP32-C3** (placa "0.42 OLED") | Botoeira |
-| 1 | **AS5047P** (placa AS5047P-TS_EK_AB, AMS) | Encoder magnético de ângulo (direção), SPI |
-| 1 | **Ímã diametral** (~6 mm, vem no kit do AS5047P) | Preso ao eixo, lido pelo sensor |
+| 1 | **AS5600** | Encoder magnético de ângulo (direção), I2C — substituiu o AS5047P (SPI) em 2026-06-16 |
+| 1 | **Ímã diametral** (~6-8 mm) | Preso ao eixo, lido pelo sensor |
 | 1 | **GC9A01** TFT redondo 240×240 (SPI) | Tela do painel |
 | 1 | Módulo **2 relés** (opto, *active-low*, bobina SRD-05VDC) | Tic-tac do pisca |
 | 2 | LEDs + resistores 330 Ω | Faróis baixo/alto no painel |
@@ -58,7 +58,7 @@ bancada — ver `LIGACOES.md` §10 pro status e a receita de nó novo.
 - **Os C3 e periféricos** usam o **trilho de 5 V** da fonte externa.
 - **GND comum obrigatório**: o GND de tudo (S3, C3s, fonte, relés, sensor) se junta
   em estrela, num único ponto.
-- **Sensor AS5047P e joystick sempre em 3V3, nunca 5 V** (5 V estoura o ADC / sai
+- **Sensor AS5600 e joystick sempre em 3V3, nunca 5 V** (5 V estoura o ADC / sai
   da faixa do sensor).
 - **Cursor de potenciômetro (pedais futuros) nunca em 5 V** — só 3V3/GND/GPIO.
 
@@ -297,11 +297,11 @@ Notas importantes para reproduzir o mesmo build:
 
 | Função | Pino S3 | Liga em |
 |---|---|---|
-| AS5047P CLK | GPIO4 | sensor `CLK` |
-| AS5047P MISO | GPIO5 | sensor `MISO` (pull-up interno) |
-| AS5047P MOSI | GPIO6 | sensor `MOSI` |
-| AS5047P CSn | GPIO7 | sensor `CSn` |
-| Sensor alimentação | 3V3 / GND | sensor `3V3` / `GND` |
+| AS5600 SDA | GPIO6 | sensor `SDA` |
+| AS5600 SCL | GPIO7 | sensor `SCL` |
+| ~~AS5047P CLK~~ **livre** (sensor trocado pro AS5600, I2C) | GPIO4 | — |
+| ~~AS5047P MISO~~ **livre** | GPIO5 | — |
+| Sensor alimentação | 3V3 / GND | sensor `VCC` / `GND` (`DIR` → GND) |
 | CAN (TWAI) TX *(era UART1 → Painel)* | GPIO17 | SN65HVD230 `D` |
 | CAN (TWAI) RX *(era UART1 → Painel)* | GPIO18 | SN65HVD230 `R` |
 | ~~UART2 → Botoeira~~ **livre** (Botoeira no mesmo barramento CAN) | GPIO15 / GPIO16 | — |
@@ -311,7 +311,7 @@ Notas importantes para reproduzir o mesmo build:
 | USB HID+CDC | USB nativa (GPIO19/20) | cabo → PC |
 | GND comum | GND | estrela com fonte 5 V, C3s, sensor |
 
-SPI do sensor: **modo 1, 8 MHz**. Pedais (botão): `GPIO → botão → GND` (pull-up
+Sensor: **AS5600, I2C, endereço 0x36**. Pedais (botão): `GPIO → botão → GND` (pull-up
 interno, *active-low*). GPIO9/10 são ADC-capazes — os mesmos pontos servem para
 os potenciômetros futuros (basta `PEDAIS_USE_ADC=1`).
 
@@ -377,7 +377,8 @@ codigos/main/
 ├── CMakeLists.txt
 ├── idf_component.yml   ← dependência: espressif/esp_tinyusb (HID)
 ├── direcao/            ← volante (sensor de ângulo + calibração)
-│   ├── as5047.c/.h     ← driver SPI do AS5047P (encoder magnético 14 bits)
+│   ├── as5600.c/.h     ← driver I2C do AS5600 (encoder magnético 12 bits) — ATIVO
+│   ├── as5047.c/.h     ← driver SPI do AS5047P (sensor anterior, 14 bits) — fora do build
 │   └── calib.c/.h      ← calibração da direção pelo BOOT + multi-turn + NVS
 ├── pedais/
 │   └── pedais.c/.h     ← acelerador/freio (botões hoje, potenciômetros depois)
@@ -397,7 +398,8 @@ codigos/main/
 | Módulo | Função |
 |---|---|
 | **`main.c`** | Inicia tudo (NVS, transporte, telemetria, sensor, calibração, pedais, botoeira, HID). `hid_task` a 50 Hz monta o relatório do gamepad; `reemit_task` reenvia telemetria ao painel a cada 50 ms; `angle_task` loga o ângulo a 1 Hz. |
-| **`direcao/as5047`** | Driver SPI do encoder magnético AS5047P (absoluto, 14 bits/volta). Valida paridade e *error-flag*; retorna `-1` se não houver sensor (evita travar o eixo). |
+| **`direcao/as5600`** | Driver I2C do encoder magnético AS5600 (absoluto, 12 bits/volta, endereço `0x36`). Retorna `-1` em erro de I2C / sem resposta. **Ativo** desde 2026-06-16. |
+| **`direcao/as5047`** | Driver SPI do AS5047P (14 bits/volta) — sensor anterior, mantido no disco como backend alternativo, **fora do build**. |
 | **`direcao/calib`** | Calibração da direção pelo botão **BOOT** e contagem *multi-turn* (o encoder é absoluto em 1 volta; o volante gira mais que isso). Salva esquerda/direita/centro em **NVS** (sobrevive ao reset). |
 | **`pedais/pedais`** | Acelerador e freio na própria S3. Macro **`PEDAIS_USE_ADC`** escolhe entre 2 botões (agora) e 2 potenciômetros (futuro), nos mesmos pinos. |
 | **`botoeira/botoeira_rx`** | Recebe pelo barramento CAN o estado da botoeira (8 botões + joystick de visão) e disponibiliza para o `hid_task`. |
@@ -410,7 +412,7 @@ codigos/main/
 
 | Entrada | Eixo / botão HID |
 |---|---|
-| Volante (AS5047P calibrado) | eixo **X** |
+| Volante (AS5600 calibrado) | eixo **X** |
 | Acelerador (pedais) | eixo **Y** |
 | Freio (pedais) | eixo **Rx** |
 | Joystick de visão (botoeira) | eixos **Z** / **Rz** |
