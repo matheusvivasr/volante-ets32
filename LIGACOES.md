@@ -12,20 +12,23 @@
                     ┌──────────────────────────────────────────────┐
    PC (ETS2) ◄──────┤ USB nativo  : HID gamepad (eixo + botões)     │
         ▲    USB ───┤ USB CH343   : COM3 (flash/console/telemetria) │  ESP32-S3
-        │           │ UART1 ──► Painel C3      SPI ──► AS5047P       │  (núcleo)
-        │           │ UART2 ──► Botoeira C3 (a fazer)                │
+        │           │ CAN(TWAI) ──► barramento SPI ──► AS5047P       │  (núcleo)
+        │           │                                                 │
    telemetria       └──────────────────────────────────────────────┘
-   (Python)                 │ UART1                  │ UART2
-                            ▼                        ▼
+   (Python)                 │ CANH/CANL (barramento único)
+                            ▼
                   ┌───────────────────┐    ┌───────────────────┐
                   │   PAINEL  (C3)    │    │  BOTOEIRA  (C3)   │
-                  │ GC9A01 + OLED     │    │  botões/encoders  │
-                  │ 2 relés + 2 LEDs  │    │   (a definir)     │
+                  │ GC9A01 + OLED     │◄──►│  botões/joystick   │
+                  │ 2 relés + 2 LEDs  │    │                    │
                   └───────────────────┘    └───────────────────┘
+                       (mesmo barramento CAN pros 2 satélites)
 ```
 
-Transporte atual = **UART** (ponto-a-ponto, 3 fios por enlace). Migração futura = **CAN/TWAI**
-(barramento único; ver §10).
+Transporte: **software já migrado pra CAN/TWAI** (barramento único) nos 3 nós — a
+UART ponto-a-ponto (3 fios por enlace) saiu de cena no firmware. **Fiação física
+do barramento (SN65HVD230 + 120Ω) ainda pendente** — ver §10 pro status e a
+receita de como plugar um nó.
 
 ---
 
@@ -64,15 +67,14 @@ INF: GND GND 19 20 21 47 48 45 00 35 36 37 38 39 40 41 42 02 01 RX  TX  GND
 | UART0 TX (console/telem) | `TX` = GPIO43 | CH343 → COM3 |
 | UART0 RX | `RX` = GPIO44 | CH343 → COM3 |
 | USB nativo D− / D+ | GPIO19 / GPIO20 | porta USB nativa → HID |
-| **UART1 → Painel** TX | GPIO17 | Painel C3 `GPIO1` (RX) |
-| **UART1 → Painel** RX | GPIO18 | Painel C3 `GPIO0` (TX) |
+| **CAN (TWAI) TX** *(era UART1 → Painel)* | GPIO17 | SN65HVD230 `D` |
+| **CAN (TWAI) RX** *(era UART1 → Painel)* | GPIO18 | SN65HVD230 `R` |
 | **SPI AS5047P** CLK | GPIO4 | AS5047P `CLK` |
 | **SPI AS5047P** MISO | GPIO5 | AS5047P `MISO` (pull-up interno) |
 | **SPI AS5047P** MOSI | GPIO6 | AS5047P `MOSI` |
 | **SPI AS5047P** CS | GPIO7 | AS5047P `CSn` |
 | Botão BOOT (calibração direção / HID btn 16) | GPIO0 | — (botão onboard) |
-| **UART2 → Botoeira** TX | GPIO15 | Botoeira C3 RX |
-| **UART2 → Botoeira** RX | GPIO16 | Botoeira C3 TX |
+| ~~UART2 → Botoeira~~ **livre** (Botoeira migrou pro mesmo barramento CAN acima) | GPIO15 / GPIO16 | — |
 | **Pedal Acelerador** | GPIO10 *(ADC1_CH9)* | botão→GND (hoje) / potenciômetro (futuro) |
 | **Pedal Freio** | GPIO9 *(ADC1_CH8)* | botão→GND (hoje) / potenciômetro (futuro) |
 | Alimentação sensor | `3V3` / `GND` | AS5047P `3V3` / `GND` |
@@ -99,8 +101,8 @@ INF (esq→dir): 3  4  5  6      7      8   9   10
 
 | Função | Pino C3 | Vai para |
 |---|---|---|
-| **UART1 → S3** TX | GPIO0 | S3 GPIO18 (RX) |
-| **UART1 → S3** RX | GPIO1 | S3 GPIO17 (TX) |
+| **CAN (TWAI) TX** *(era UART1 → S3)* | GPIO0 | SN65HVD230 `D` |
+| **CAN (TWAI) RX** *(era UART1 → S3)* | GPIO1 | SN65HVD230 `R` |
 | **Display** CS | GPIO3 | GC9A01 `CS` |
 | **Display** DC | GPIO4 | GC9A01 `DC` |
 | **Display** MOSI/SDA | GPIO7 | GC9A01 `SDA` |
@@ -209,16 +211,18 @@ SUP (esq→dir): 0  1  2  TX(21) RX(20) 3V3 GND 5V
 INF (esq→dir): 3  4  5  6      7      8   9   10
 ```
 
-Enlace: **UART** (Botoeira GPIO0/1) ↔ **UART2 da S3** (GPIO15/16) — 3 fios TX/RX/GND.
-Console da Botoeira movido p/ **USB-JTAG** (libera GPIO20/21 p/ botões). OLED 0.42 não usado
-(GPIO5/6 viram botões). Mensagem **0x040** (4 bytes): `[botões uint16][view_x int8][view_y int8]`.
+Enlace: **CAN (TWAI)** — Botoeira GPIO0/1 no mesmo barramento CANH/CANL da S3 e
+do Painel (§10), **não** mais um enlace ponto-a-ponto próprio (a antiga UART2
+da S3, GPIO15/16, ficou livre — ver §3). Console da Botoeira movido p/
+**USB-JTAG** (libera GPIO20/21 p/ botões). OLED 0.42 não usado (GPIO5/6 viram
+botões). Mensagem **0x040** (4 bytes): `[botões uint16][view_x int8][view_y int8]`.
 
 ### Link + alimentação
 
 | Botoeira C3 | Vai para |
 |---|---|
-| `GPIO0` (UART TX) | S3 `GPIO16` (RX2) |
-| `GPIO1` (UART RX) | S3 `GPIO15` (TX2) |
+| `GPIO0` (CAN TX) | SN65HVD230 `D` (próprio da Botoeira) |
+| `GPIO1` (CAN RX) | SN65HVD230 `R` (próprio da Botoeira) |
 | `GND` | GND comum |
 | `5V` ou `3V3` | trilho de alimentação |
 
@@ -260,11 +264,11 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 ```
   ZONA COLUNA/EIXO ───────────┐        ZONA DASHBOARD ───────────┐
   AS5047P (no eixo) ─SPI 8MHz──┤        Painel C3 + GC9A01 + OLED │
-   ≤10cm─ ESP32-S3 (host) ◄────┼─UART1──+ 2 relés + 2 LEDs        │
-            │  +FFB futuro      │ 1-3m                            │
-            │ pedais ~1-1.5m    │        ZONA CONSOLE LATERAL ────┤
+   ≤10cm─ ESP32-S3 (host) ◄────┼──CAN───+ 2 relés + 2 LEDs        │
+            │  +FFB futuro      │ (CANH/CANL, mesmo barramento    │
+            │ pedais ~1-1.5m    │  da Botoeira) ZONA CONSOLE LATERAL ┤
             ▼                   │        Botoeira C3 + 8 botões    │
-  ZONA CHÃO/PEDAL ◄──UART2 1-3m─┼───────►+ joystick (local ≤15cm) │
+  ZONA CHÃO/PEDAL ◄────CAN──────┼───────►+ joystick (local ≤15cm) │
   (botão hoje / satélite        │                                 │
    C3 quando virar pot)         └── GND comum + trilho 5V em tudo ─┘
 ```
@@ -272,8 +276,7 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 | Enlace | Sinais | Veloc. | Comprimento ± | Crít. | Onde |
 |---|---|---|---|---|---|
 | S3 ↔ AS5047P | CLK/MISO/MOSI/CSn +3V3/GND | 8 MHz | **≤10 cm** ideal, máx ~20-30 cm | 🔴 | **S3 colado na coluna** (sensor preso ao eixo) |
-| S3 ↔ Painel | TX/RX +GND | 115200 | 1-3 m (≈5 m c/ par trançado) | 🟢 | painel longe OK |
-| S3 ↔ Botoeira | TX/RX +GND | 115200 | 1-3 m | 🟢 | botoeira longe OK |
+| S3 ↔ Painel ↔ Botoeira (**mesmo barramento CAN**) | CANH/CANL +GND | 500 kbps (TWAI) | dezenas de m (típico ≤100 m @500kbps, ISO11898) | 🟢 | qualquer nó longe OK; 120Ω só nas 2 pontas físicas (§10) |
 | S3 ↔ Pedais (botão hoje) | 2 GPIO +GND | digital | ≤ ~1 m (>1 m: pull-up ext. 4k7 +100nF) | 🟡 | chão ~1-1.5 m, ok p/ botão |
 | S3 ↔ Pedais (pot futuro) | 2 ADC +3V3/GND | analóg. | **≤ ~30 cm ao ADC** | 🔴 | NÃO esticar → **satélite C3 no chão** |
 | Botoeira ↔ Joystick | 2 ADC +3V3/GND | analóg. | ≤ 10-20 cm (local) | 🔴 | **local na botoeira** (já é) |
@@ -282,23 +285,32 @@ No S3 (UART2 → 0x040): 8 botões → **botões HID 1–8**; view_x/view_y → 
 **Regra — fio direto na S3 vs placa própria:**
 
 - **Fio direto** se: digital/lento **OU** trecho curto **OU** for o SPI do sensor (já tem de ficar perto da S3).
-- **Satélite C3 próprio** se: **longe E analógico/muitos fios** → digitaliza na origem, manda 3 fios UART (depois 2 do CAN). Fio analógico longo = antena de ruído + queda; UART longo = só nível lógico, aguenta.
+- **Satélite C3 próprio** se: **longe E analógico/muitos fios** → digitaliza na origem, manda 2 fios CAN (CANH/CANL) +GND. Fio analógico longo = antena de ruído + queda; CAN longo = só nível diferencial, aguenta.
 
 **Fio (independe da topologia):**
 
-- UART longo: GND **junto e trançado** com TX/RX. Sempre 3 fios.
+- CAN longo: CANH/CANL **trançados entre si**, GND à parte (não precisa trançar com o par). 120Ω só nas 2 pontas físicas do barramento (§10) — nunca em nó do meio.
 - SPI do sensor: o mais curto possível; p/ esticar, baixe `AS5047_SPI_HZ` (8 → 1-4 MHz).
 - 5V: bitola pela corrente + comprimento (queda), não pela velocidade.
 
-> Com o **CAN** (§10) isso relaxa: 2 fios (CANH/CANL) +GND, 500 kbps aguenta dezenas
-> de metros, satélite em qualquer ponto — comprimento deixa de importar. Os limites
-> acima são da fase UART (interina).
+> **Status (2026-09-08):** o CAN já é o transporte ativo no firmware dos 3 nós
+> (§10) — os limites de comprimento acima já valem pro CAN, não mais UART.
+> Falta só a fiação física (SN65HVD230 + 120Ω) pra esse relaxamento virar
+> realidade na bancada; até lá, nenhum nó troca mensagem de verdade.
 
 ---
 
-## 10. Futuro: barramento CAN (etapa 6)
+## 10. Barramento CAN (TWAI)
 
-Quando os **SN65HVD230** chegarem, os enlaces UART viram **um barramento CAN único**:
+> **Status (2026-09-08): software migrado e verificado nos 3 nós; fiação física
+> pendente.** Os `CMakeLists.txt` dos 3 firmwares já compilam os backends CAN
+> (não mais UART) — confirmado rodando de verdade no Painel C3 (log de boot:
+> `can_bus: TWAI/CAN init OK (TX=GPIO0 RX=GPIO1, 500 kbps)`) e compilação limpa
+> na S3 e na Botoeira. **Falta só cabear o SN65HVD230 em cada nó** — sem
+> transceiver físico, cada nó fica "conversando sozinho" (driver TWAI de pé,
+> sem tráfego). Módulos SN65HVD230 e resistores de 120Ω já em mãos (mat/2026).
+
+Os enlaces UART viram **um barramento CAN único**:
 
 ```
 S3 ─[SN65HVD230]─┐                          ┌─[SN65HVD230]─ Painel C3
@@ -308,7 +320,49 @@ S3 ─[SN65HVD230]─┐                          ┌─[SN65HVD230]─ Painel C
                  └── GND comum ─────────────┘  (+ Botoeira, Pedais, Câmbio...)
 ```
 
-- S3 TWAI: TX=GPIO17, RX=GPIO18 (reaproveita pinos da UART1).
-- C3 TWAI: TX=GPIO0, RX=GPIO1 (reaproveita pinos da UART1).
-- 120Ω em **cada uma das duas pontas** físicas do barramento.
-- Código pronto: `transport_can.c` (S3) e `transport_rx_can.c` (C3) — fora do build até ativar.
+- S3 TWAI: TX=GPIO17, RX=GPIO18 (reaproveita pinos da antiga UART1).
+- C3 (Painel e Botoeira) TWAI: TX=GPIO0, RX=GPIO1 (reaproveita pinos da antiga UART1).
+- 120Ω em **cada uma das duas pontas físicas** do barramento — **não** um por nó.
+  Com 2 nós só (bring-up), os 120Ω vão nas duas pontas do próprio trecho S3↔Painel;
+  ao entrar um 3º nó no meio (Botoeira, depois Pedais/Câmbio), ele **não** leva
+  resistor — só quem fica fisicamente nas pontas do fio leva.
+- Framing do projeto (igual nos 3 nós): payload útil ≤ 7 bytes; o CAN faz
+  SOF/CRC/ACK/arbitragem em hardware; o **último byte** do frame é o contador
+  de sequência. IDs (11 bits): `0x020` pedais, `0x030` câmbio, `0x040` botoeira,
+  `0x100–0x102` telemetria→painel, `0x7FF` heartbeat.
+
+### Componente compartilhado: `components/can_bus`
+
+O driver TWAI não é mais reimplementado por nó. Existe **um componente ESP-IDF
+só** (`components/can_bus/`, referenciado nos 3 projetos via
+`EXTRA_COMPONENT_DIRS` no `CMakeLists.txt` de topo) com a API:
+
+```c
+esp_err_t can_bus_init(int tx_gpio, int rx_gpio);              // sobe o driver, 500 kbps
+esp_err_t can_bus_send(uint16_t id, const uint8_t *payload, uint8_t len);
+void      can_bus_start_rx(can_bus_rx_cb_t cb);                 // task de recepção
+```
+
+Cada nó só tem um arquivo fino (`transport_can.c` na S3, `transport_rx_can.c`
+no Painel, `transport_tx_can.c` na Botoeira) que chama essas 3 funções com os
+pinos do próprio nó e traduz `can_bus_msg_t` <-> o `transport_msg_t` que o
+`main.c` daquele nó já conhecia — **`main.c` de nenhum nó precisou mudar.**
+
+### Receita pra plugar um nó CAN novo (pedais, câmbio, o que vier)
+
+1. `idf_component_register` do novo projeto **não precisa declarar `REQUIRES`**
+   pro `can_bus` — sem `REQUIRES`/`PRIV_REQUIRES` nenhum, o `main` do ESP-IDF já
+   ganha todos os componentes de graça (é assim que os 3 nós atuais funcionam).
+   Só **copie o `set(EXTRA_COMPONENT_DIRS ...)` do `CMakeLists.txt` de topo** de
+   qualquer um dos 3 projetos existentes, apontando pra `../components`.
+2. Escolha 2 GPIOs livres pro TX/RX do TWAI (na C3, se sobrar, `GPIO0/1` de novo
+   não serve — cada nó no barramento tem seu próprio par de pinos locais; não é
+   um pino compartilhado entre nós, só o CANH/CANL físico é compartilhado).
+3. Escreva um `transport_*.c` fino chamando `can_bus_init()` +
+   `can_bus_send()`/`can_bus_start_rx()` (copie o do nó mais parecido: Botoeira
+   se só transmite, Painel se só recebe, S3 se os dois).
+4. Cabeie o SN65HVD230 do nó novo: TX/RX do ESP → `D`/`R` do transceiver,
+   `CANH`/`CANL` no barramento, GND comum. **120Ω só se esse nó for uma ponta
+   física nova do barramento** (normalmente não é — ele entra no meio).
+5. Novo ID de mensagem: siga a faixa livre depois de `0x102` (ou `0x0xx` pra
+   entrada de sensor, seguindo o padrão de `0x020`/`0x030`/`0x040` já usado).

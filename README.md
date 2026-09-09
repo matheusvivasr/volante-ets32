@@ -13,8 +13,11 @@ A arquitetura é **host + satélites**:
   locais (ou recebe telemetria, no caso do painel) e troca mensagens com a S3.
 
 O **transporte** entre placas é abstraído: o formato lógico de mensagem é o mesmo
-em qualquer meio físico. Hoje é **UART** (ponto-a-ponto); migra para **CAN/TWAI**
-quando entrar um 3º módulo satélite e os transceivers `SN65HVD230` chegarem.
+em qualquer meio físico. **Software já migrado pra CAN/TWAI** (barramento único,
+via componente compartilhado `components/can_bus/`) nos 3 nós — a UART
+ponto-a-ponto original saiu de cena no firmware. Falta só cabear os
+transceivers `SN65HVD230` (já em mãos) pra virar tráfego de verdade na
+bancada — ver `LIGACOES.md` §10 pro status e a receita de nó novo.
 
 > Documentos-fonte complementares:
 > - [`LIGACOES.md`](LIGACOES.md) — netlist/pinagem física detalhada (fonte oficial; atualizada a cada mudança de fiação).
@@ -45,7 +48,8 @@ quando entrar um 3º módulo satélite e os transceivers `SN65HVD230` chegarem.
 | 1 | Fonte **5 V** (≥1 A; carregador de celular serve nesta fase) | Trilho de 5 V dos satélites |
 | — | Fios, mola de torção (centralização do volante), carcaça | Mecânica |
 
-> **Futuro (CAN, ainda não adquirido):** 1× `SN65HVD230` por nó + 2× resistores 120 Ω.
+> **CAN (em mãos, fiação física pendente):** 1× `SN65HVD230` por nó + 2× resistores
+> 120 Ω (só nas duas pontas físicas do barramento). Software já migrado — ver §7 e `LIGACOES.md` §10.
 
 ### Regras de alimentação (importantes)
 
@@ -298,10 +302,9 @@ Notas importantes para reproduzir o mesmo build:
 | AS5047P MOSI | GPIO6 | sensor `MOSI` |
 | AS5047P CSn | GPIO7 | sensor `CSn` |
 | Sensor alimentação | 3V3 / GND | sensor `3V3` / `GND` |
-| UART1 → Painel TX | GPIO17 | Painel C3 GPIO1 (RX) |
-| UART1 → Painel RX | GPIO18 | Painel C3 GPIO0 (TX) |
-| UART2 → Botoeira TX | GPIO15 | Botoeira C3 GPIO1 (RX) |
-| UART2 → Botoeira RX | GPIO16 | Botoeira C3 GPIO0 (TX) |
+| CAN (TWAI) TX *(era UART1 → Painel)* | GPIO17 | SN65HVD230 `D` |
+| CAN (TWAI) RX *(era UART1 → Painel)* | GPIO18 | SN65HVD230 `R` |
+| ~~UART2 → Botoeira~~ **livre** (Botoeira no mesmo barramento CAN) | GPIO15 / GPIO16 | — |
 | **Pedal acelerador** | **GPIO10** (ADC1_CH9) | botão → GND (futuro: potenciômetro) |
 | **Pedal freio** | **GPIO9** (ADC1_CH8) | botão → GND (futuro: potenciômetro) |
 | Botão BOOT (calibração / HID btn 16) | GPIO0 | botão onboard |
@@ -316,12 +319,12 @@ os potenciômetros futuros (basta `PEDAIS_USE_ADC=1`).
 
 | Função | Pino C3 | Liga em |
 |---|---|---|
-| UART1 → S3 TX | GPIO0 | S3 GPIO18 (RX) |
-| UART1 → S3 RX | GPIO1 | S3 GPIO17 (TX) |
-| Display MOSI/SDA | GPIO3 | GC9A01 `SDA` |
-| Display SCLK/SCL | GPIO4 | GC9A01 `SCL` |
-| Display CS | GPIO7 | GC9A01 `CS` |
-| Display DC | GPIO10 | GC9A01 `DC` |
+| CAN (TWAI) TX *(era UART1 → S3)* | GPIO0 | SN65HVD230 `D` |
+| CAN (TWAI) RX *(era UART1 → S3)* | GPIO1 | SN65HVD230 `R` |
+| Display CS | GPIO3 | GC9A01 `CS` |
+| Display DC | GPIO4 | GC9A01 `DC` |
+| Display MOSI/SDA | GPIO7 | GC9A01 `SDA` |
+| Display SCLK/SCL | GPIO10 | GC9A01 `SCL` |
 | Relé IN1 (seta esq) | GPIO2 | módulo relé `IN1` |
 | Relé IN2 (seta dir) | GPIO8 | módulo relé `IN2` |
 | LED farol baixo | GPIO20 | 330 Ω → LED → GND |
@@ -338,8 +341,8 @@ removido.
 
 | Função | Pino C3 | Liga em |
 |---|---|---|
-| UART → S3 TX | GPIO0 | S3 GPIO16 (RX2) |
-| UART → S3 RX | GPIO1 | S3 GPIO15 (TX2) |
+| CAN (TWAI) TX *(era UART → S3)* | GPIO0 | SN65HVD230 `D` |
+| CAN (TWAI) RX *(era UART → S3)* | GPIO1 | SN65HVD230 `R` |
 | Botão seta esquerda (bit 0) | GPIO5 | botão → GND |
 | Botão seta direita (bit 1) | GPIO6 | botão → GND |
 | Botão pisca-alerta (bit 2) | GPIO7 | botão → GND |
@@ -379,14 +382,16 @@ codigos/main/
 ├── pedais/
 │   └── pedais.c/.h     ← acelerador/freio (botões hoje, potenciômetros depois)
 ├── botoeira/
-│   └── botoeira_rx.c/.h← recebe o estado da botoeira (msg 0x040 via UART2)
+│   └── botoeira_rx.c/.h← recebe o estado da botoeira (msg 0x040, via o barramento CAN)
 ├── painel/
 │   └── telemetry.c/.h  ← imagem de telemetria em RAM + reemissão p/ o painel
 ├── transporte/
-│   ├── transport.c/.h  ← framing UART (SOF+ID+LEN+PAYLOAD+SEQ+CRC8)
-│   └── transport_can.c ← backend CAN/TWAI (GUARDADO, fora do build até a etapa CAN)
+│   ├── transport.c/.h  ← interface pública + framing UART (SOF+ID+LEN+PAYLOAD+SEQ+CRC8, fora do build)
+│   └── transport_can.c ← backend ATIVO: CAN/TWAI sobre ../../components/can_bus
 └── usb/
     └── usb_hid.c/.h    ← gamepad USB HID pela USB nativa (TinyUSB)
+
+../components/can_bus/  ← COMPARTILHADO com Painel e Botoeira (driver TWAI, fora de main/)
 ```
 
 | Módulo | Função |
@@ -395,10 +400,10 @@ codigos/main/
 | **`direcao/as5047`** | Driver SPI do encoder magnético AS5047P (absoluto, 14 bits/volta). Valida paridade e *error-flag*; retorna `-1` se não houver sensor (evita travar o eixo). |
 | **`direcao/calib`** | Calibração da direção pelo botão **BOOT** e contagem *multi-turn* (o encoder é absoluto em 1 volta; o volante gira mais que isso). Salva esquerda/direita/centro em **NVS** (sobrevive ao reset). |
 | **`pedais/pedais`** | Acelerador e freio na própria S3. Macro **`PEDAIS_USE_ADC`** escolhe entre 2 botões (agora) e 2 potenciômetros (futuro), nos mesmos pinos. |
-| **`botoeira/botoeira_rx`** | Recebe por UART2 o estado da botoeira (8 botões + joystick de visão) e disponibiliza para o `hid_task`. |
+| **`botoeira/botoeira_rx`** | Recebe pelo barramento CAN o estado da botoeira (8 botões + joystick de visão) e disponibiliza para o `hid_task`. |
 | **`painel/telemetry`** | Guarda a telemetria do jogo em RAM (thread-safe) e a reemite serializada para o painel C3. |
-| **`transporte/transport`** | Camada de comunicação entre placas (framing UART com CRC8). Mesmo formato lógico que o CAN futuro. |
-| **`transporte/transport_can`** | Versão CAN/TWAI do transporte. Pronta mas fora do build até a migração. |
+| **`transporte/transport`** | Interface pública do transporte (`transport_init`/`transport_send`) + framing UART original — mantido como backend alternativo, **fora do build**. |
+| **`transporte/transport_can`** | Backend **ATIVO**: mesma interface, sobre o componente compartilhado `components/can_bus` (driver TWAI). |
 | **`usb/usb_hid`** | Faz a S3 aparecer no PC como gamepad via USB nativa (TinyUSB). |
 
 **Mapa dos eixos/botões HID:**
@@ -433,24 +438,25 @@ combustível e navegação em 3 telas (troca pelo botão BOOT). Aciona 2 relés
 |---|---|
 | `main.c` | Inicia display/oled/relés/luzes e a recepção; troca de tela; decodifica telemetria. |
 | `display.c/.h` | Driver bare-metal do GC9A01 (framebuffer RGB565, fonte própria, 3 views). |
-| `transport_rx.c/.h` | Recepção UART (mesmo framing da S3). |
+| `transport_rx.c/.h` | Interface pública (`transport_rx_init`) + recepção UART original — backend alternativo, fora do build. |
+| `transport_rx_can.c` | Backend **ATIVO**: recepção sobre o componente compartilhado `components/can_bus`. |
 | `relay.c/.h` | 2 relés do pisca (um por lado), em fase com os indicadores da tela. |
 | `lights.c/.h` | LEDs de farol baixo/alto. |
 | `oled.c/.h` | OLED 0.42 embutido (bateria de combustível). |
 | `diag.c` | Diagnóstico/bring-up. |
 | `leds.c/.h` | Desativado nesta placa (sem GPIO livre); mantido para reuso. |
-| `transport_rx_can.c` | Versão CAN, guardada para a migração. |
 
 ### 4.3 Botoeira — `codigos_c3_botoeira/`
 
 ESP32-C3 com 8 botões e um joystick analógico de visão. Envia o estado para a S3
-(mensagem `0x040`) por UART.
+(mensagem `0x040`) pelo barramento CAN.
 
 | Módulo | Função |
 |---|---|
 | `main.c` | Lê entradas e envia `0x040` on-change + heartbeat. |
 | `inputs.c/.h` | 8 botões (ativo-baixo) → bitmap; joystick por ADC → eixos. |
-| `transport_tx.c/.h` | Envio UART (mesmo framing). Só TX. |
+| `transport_tx.c/.h` | Interface pública (`transport_tx_init`/`_send`) + envio UART original — backend alternativo, fora do build. |
+| `transport_tx_can.c` | Backend **ATIVO**: envio sobre o componente compartilhado `components/can_bus`. |
 
 ---
 
@@ -470,19 +476,22 @@ python pc_reader/telemetry_reader.py --port COM3 --sim      # dados sintéticos 
 
 ## 6. Protocolo de mensagens
 
-Framing UART (idêntico ao CAN futuro):
+Os **IDs e payloads lógicos** são os mesmos em qualquer meio físico; o **framing
+do fio** depende do enlace:
 
-```
-SOF(0xAA) | ID_LO | ID_HI | LEN | PAYLOAD(0..8) | SEQ | CRC8
-```
-`CRC8` = XOR acumulado sobre ID+LEN+PAYLOAD+SEQ.
+- **PC → S3** (leitor Python, USB serial/UART0 — não faz parte da migração CAN,
+  o PC não tem transceiver): `SOF(0xAA) | ID_LO | ID_HI | LEN | PAYLOAD(0..8) | SEQ | CRC8`
+  (`CRC8` = XOR acumulado sobre ID+LEN+PAYLOAD+SEQ).
+- **S3 ↔ Painel ↔ Botoeira** (barramento CAN, `components/can_bus`): sem
+  SOF/LEN/CRC8 — o controlador TWAI já faz isso em hardware. O frame CAN carrega
+  só `ID (11 bits)` + até 8 bytes de dado, sendo o **último byte o SEQ**.
 
 | ID | Mensagem | Sentido |
 |---|---|---|
-| `0x040` | Botoeira: `[botões u16][view_x i8][view_y i8]` | Botoeira → S3 |
-| `0x100` | Telemetria painel (velocidade, RPM, etc.) | S3 → Painel |
-| `0x101` | Telemetria LEDs/telltales | S3 → Painel |
-| `0x102` | Telemetria navegação | S3 → Painel |
+| `0x040` | Botoeira: `[botões u16][view_x i8][view_y i8]` | Botoeira → S3 (CAN) |
+| `0x100` | Telemetria painel (velocidade, RPM, etc.) | S3 → Painel (CAN) |
+| `0x101` | Telemetria LEDs/telltales | S3 → Painel (CAN) |
+| `0x102` | Telemetria navegação | S3 → Painel (CAN) |
 
 ---
 
@@ -493,7 +502,8 @@ SOF(0xAA) | ID_LO | ID_HI | LEN | PAYLOAD(0..8) | SEQ | CRC8
   + botoeira + painel), gravado na S3. Falta validar em hardware no `joy.cpl`.
 - ⏳ **Pedais**: provisórios como 2 botões na S3; viram potenciômetros nas molas
   depois (trocar `PEDAIS_USE_ADC`).
-- ⏳ **CAN/TWAI**: migrar quando entrar um 3º módulo satélite e chegarem os
-  `SN65HVD230` (código já guardado).
+- 🟡 **CAN/TWAI**: software migrado e verificado nos 3 nós (componente
+  compartilhado `components/can_bus`, ver `LIGACOES.md` §10) — falta cabear os
+  `SN65HVD230` (já em mãos) pra virar tráfego de verdade no barramento.
 - ⏳ **FFB**: adiado; arquitetura já reserva o núcleo na S3. Centralização atual
   por mola de torção.

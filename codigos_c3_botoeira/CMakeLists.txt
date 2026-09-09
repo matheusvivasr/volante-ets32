@@ -1,5 +1,9 @@
 # Projeto IDF da Botoeira (ESP32-C3). Target definido por: idf.py set-target esp32c3
 cmake_minimum_required(VERSION 3.16)
+
+# Componentes compartilhados entre os nós do projeto (ex.: can_bus).
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../components")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(volante_botoeira)
 

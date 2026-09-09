@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Componentes compartilhados entre os nós do projeto (ex.: can_bus).
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../components")
+
 # Inclui o sistema de build do ESP-IDF
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

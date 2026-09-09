@@ -8,7 +8,7 @@
       "Modularidade: cada modulo funcional e um no independente, adicionavel por etapas.",
       "Determinismo: loop critico de FFB roda LOCAL na S3, nunca distribuido pelo barramento.",
       "Plug-and-play no PC: dispositivo se apresenta como HID gamepad padrao; ETS2 ve um unico controle.",
-      "Transporte abstraido: o formato de mensagem (ID + payload + contador) e o mesmo independente do meio fisico. Comeca em UART (hardware ja disponivel) e migra para CAN sem reescrever a logica, so trocando a camada de transporte."
+      "Transporte abstraido: o formato de mensagem (ID + payload + contador) e o mesmo independente do meio fisico. Comecou em UART e MIGROU PRA CAN/TWAI em 2026-09-08 (software nos 3 nos, via componente compartilhado components/can_bus/) sem reescrever a logica de main.c nenhum, so trocando a camada de transporte."
     ]
   },
 
@@ -68,7 +68,7 @@
       "_organizacao_main": "main/ organizado em sub-pastas por subsistema (2026-06-14): direcao/ (as5047, calib), pedais/ (pedais), botoeira/ (botoeira_rx), painel/ (telemetry), transporte/ (transport, transport_can), usb/ (usb_hid). main.c e idf_component.yml na raiz. CMakeLists usa SRCS com caminho relativo + INCLUDE_DIRS com cada sub-pasta, entao os #include continuam por nome simples. BUILD OK.",
       "arquivos": {
         "CMakeLists.txt": "raiz do projeto IDF, target esp32s3",
-        "main/CMakeLists.txt": "componente main: SRCS com caminhos das sub-pastas (direcao/, pedais/, botoeira/, painel/, transporte/, usb/) + INCLUDE_DIRS de cada uma. transport_can.c fora do SRCS (guardado p/ etapa 6).",
+        "main/CMakeLists.txt": "componente main: SRCS com caminhos das sub-pastas (direcao/, pedais/, botoeira/, painel/, transporte/, usb/) + INCLUDE_DIRS de cada uma. Sem REQUIRES declarado de proposito (fallback do IDF da acesso a TODOS os componentes, incluindo o novo components/can_bus, sem precisar listar). transport_can.c e o ATIVO no SRCS desde 2026-09-08; transport.c (UART) fica fora, guardado como backend alternativo. Ver CMakeLists.txt de topo: set(EXTRA_COMPONENT_DIRS ../components).",
         "sdkconfig": "gerado pelo set-target esp32s3",
         "main/main.c": "app_main: nvs_flash_init (calibracao) + transport + telemetry + as5047 + calib + pedais + botoeira_rx + usb_hid. hid_task (50Hz): calib_steering (X=direcao, multi-turn+NVS), calib_button_poll (roteiro BOOT), pedais_get (Y=accel, Rx=freio), botoeira_get (Z/Rz=visao, btns 1-8). pc_rx_task (telemetria do PC via UART0) + reemit_task (0x100/0x101/0x102 a cada 50ms p/ o painel C3) + angle_task (loga angulo a 1Hz).",
         "main/direcao/as5047.c/.h": "Driver SPI do sensor de angulo AS5047P (14 bits). SPI2_HOST modo 1, 8MHz. Pinos: CLK=GPIO4, MISO=GPIO5, MOSI=GPIO6, CSn=GPIO7. Le ANGLECOM (cmd 0xFFFF) com leitura pipelined (2 frames), valida paridade par + error-flag. as5047_read_raw() 0..16383 / as5047_read_deg() 0..360 (-1 em erro). Placa: AS5047P-TS_EK_AB (AMS). Pull-up interno no MISO (GPIO5): sem sensor a linha vai p/ 0xFFFF (error-flag) -> read retorna -1, evitando leitura de pino flutuante (que travava o eixo HID no maximo).",
@@ -76,8 +76,8 @@
         "main/pedais/pedais.c/.h": "Acelerador/freio na propria S3. Macro PEDAIS_USE_ADC (pedais.h): 0=2 BOTOES (GPIO->botao->GND, pull-up, ativo-baixo), 1=2 POTENCIOMETROS (ADC1). Pinos accel=GPIO10 (ADC1_CH9), freio=GPIO9 (ADC1_CH8) - mesmos nos dois modos. Saida -127 (repouso) .. +127 (fundo). pedais_get(&accel,&brake). Futuro: pots em molas (cursor em 3V3/GND/GPIO, NUNCA 5V). (2026-06-14.)",
         "main/usb/usb_hid.c/.h": "S3 como GAMEPAD USB HID pela USB NATIVA. TinyUSB (componente espressif/esp_tinyusb). Eixos: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT. usb_hid_send(steer,throttle,brake,view_x,view_y,buttons) a 50Hz. VALIDADO NO WINDOWS 2026-06-10 (joy.cpl). Teste: plugar a USB NATIVA (separada do CH343/COM3).",
         "main/botoeira/botoeira_rx.c/.h": "S3 recebe o estado da Botoeira (msg 0x040) por UART2 (TX=GPIO15, RX=GPIO16), mesmo framing. Parseia [botoes uint16][view_x int8][view_y int8] e guarda; o hid_task injeta nos botoes HID (bits 0-7) e nos eixos Z/Rz (visao). (2026-06-10, etapa 5.)",
-        "main/transporte/transport.c/.h": "camada UART: framing SOF(0xAA)+ID_LO+ID_HI+LEN+PAYLOAD+SEQ+CRC8. send_msg / rx_task. UART1, TX=GPIO17, RX=GPIO18, 115200 baud.",
-        "main/transporte/transport_can.c": "Backend CAN/TWAI do transporte da S3 (mesma interface do transport.h). GUARDADO p/ a migracao (etapa 6); FORA do build (nao testado/compilado). Pinos TWAI=GPIO17/18, 500kbps, seq vai como ultimo byte do payload. Ativar: trocar transport.c por este no CMakeLists + ligar SN65HVD230.",
+        "main/transporte/transport.c/.h": "camada UART original: framing SOF(0xAA)+ID_LO+ID_HI+LEN+PAYLOAD+SEQ+CRC8. send_msg / rx_task. UART1, TX=GPIO17, RX=GPIO18, 115200 baud. FORA do build desde 2026-09-08 (backend alternativo).",
+        "main/transporte/transport_can.c": "Backend ATIVO desde 2026-09-08. Fino: chama can_bus_init(17,18) + can_bus_start_rx() do componente compartilhado ../../components/can_bus (driver TWAI real fica la, nao aqui). Compilado e verificado (build limpo); trafego real no barramento ainda pendente da fiacao fisica do SN65HVD230.",
         "main/painel/telemetry.c/.h": "imagem de estado em RAM (telem_painel_t, telem_leds_t, telem_nav_t) com mutex FreeRTOS. update/get thread-safe. timeout 200ms. reemit() serializa e chama transport_send.",
         "main/idf_component.yml": "Dependencia gerenciada: espressif/esp_tinyusb (^1.4.0) p/ o HID.",
         "sdkconfig.defaults": "CONFIG_TINYUSB_HID_COUNT=1 (habilita 1 interface HID no TinyUSB).",
@@ -89,13 +89,13 @@
       "status": "COMPILADO OK (esp32c3, IDF v5.4)",
       "placa": "ESP32-C3 '0.42 OLED' (FN4/FH4). O OLED 0.42 embutido (I2C GPIO5/6) NAO e usado nesta etapa; fica reservado para ideia futura de instrumentos analogicos (servos movendo ponteiros).",
       "arquivos": {
-        "CMakeLists.txt": "raiz do projeto IDF, target esp32c3. SRCS: main.c, transport_rx.c, display.c, diag.c, oled.c, relay.c, lights.c (leds.c REMOVIDO do build).",
+        "CMakeLists.txt": "raiz do projeto IDF, target esp32c3. SRCS: main.c, transport_rx_can.c (ATIVO desde 2026-09-08; transport_rx.c/UART fora), display.c, diag.c, oled.c, relay.c, lights.c (leds.c REMOVIDO do build).",
         "main/main.c": "app_main: inicia display + oled + relay + lights + transport_rx. button_task (GPIO9 BOOT, ativo em 0) troca de view; render_task decodifica 0x100/0x101/0x102, atualiza tela/OLED, chama relay_set_sides(esq,dir) p/ os dois reles do pisca e lights_update(flags,fresca) p/ os LEDs de farol. Se timeout > 500ms mostra SEM SINAL (e silencia reles e faróis).",
         "main/lights.c/.h": "LEDs indicadores de farol (2026-06-05). farol BAIXO -> GPIO20 (pad 'RX'), farol ALTO -> GPIO21 (pad 'TX') = UART0, liberada porque o console foi movido p/ USB-Serial-JTAG no sdkconfig. NAO conflita com a comunicacao (que e UART1 nos GPIO0/1). Espelha LED_FAROL_BAIXO (bit3) e LED_FAROL_ALTO (bit4) da msg 0x101. ACTIVE-HIGH (LED comum + resistor ao GND; trocar LIGHT_ACTIVE_HIGH p/ rele active-low). Leve piscar no LED do farol alto no boot (ROM bootloader ainda fala na UART0/GPIO21 por um instante).",
-        "main/transport_rx.c/.h": "mesmo framing da S3, so RX. UART1, RX=GPIO1, TX=GPIO0, 115200 baud. (saiu de 6/7 porque GPIO5/6 sao do OLED embutido). callback on_msg decodifica 0x100/0x101/0x102.",
-        "main/display.c/.h": "driver GC9A01 TFT redondo 240x240 via SPI2 (SCLK=GPIO4, MOSI=GPIO3, CS=GPIO7, DC=GPIO10, RST e BL no 3V3). framebuffer RGB565 em RAM DMA (112.5KB), fonte 5x7 colorida escalavel. 3 views: velocidade grande, RPM+temp+combustivel, navegacao. Indicadores luminosos desenhados na propria tela. CONFIG VENCEDORA do bring-up (jun/2026, validada com este painel especifico): SPI=10MHz (40MHz em protoboard/jumpers vira chuvisco), flush do framebuffer em BLOCOS de 24 linhas (um unico transfer de 115KB dava abort/boot-loop em display.c:130), MADCTL=0x08 (BGR sem espelho; 0x40/0x48 espelhavam o texto pelo bit MX e trocavam R<->B), inversao INVON (0x21) (INVOFF deixava fundo branco/cores invertidas). Tela de boot display_boot() mostra barras de cor rotuladas + mapa de pinos = teste visual de cor/orientacao.",
+        "main/transport_rx.c/.h": "interface publica (transport_rx_init) + backend UART original (mesmo framing da S3, so RX, GPIO0/1, 115200). FORA do build desde 2026-09-08 (alternativo). callback on_msg decodifica 0x100/0x101/0x102.",
+        "main/transport_rx_can.c": "Backend ATIVO desde 2026-09-08. Fino: can_bus_init(0,1) + can_bus_start_rx() de ../../components/can_bus. CONFIRMADO rodando de verdade na bancada (log: 'can_bus: TWAI/CAN init OK (TX=GPIO0 RX=GPIO1, 500 kbps)'); trafego real ainda pendente da fiacao fisica do SN65HVD230.",
+        "main/display.c/.h": "driver GC9A01 TFT redondo 240x240 via SPI2 (CS=GPIO3, DC=GPIO4, MOSI=GPIO7, SCLK=GPIO10 - reordenado 2026-09-08 p/ fiacao em linha reta nos pads 3,4,7,10, sem cruzar fio; RST e BL no 3V3). framebuffer RGB565 em RAM DMA (112.5KB), fonte 5x7 colorida escalavel. 3 views: velocidade grande, RPM+temp+combustivel, navegacao. Indicadores luminosos desenhados na propria tela. CONFIG VENCEDORA do bring-up (jun/2026, validada com este painel especifico): SPI=10MHz (40MHz em protoboard/jumpers vira chuvisco), flush do framebuffer em BLOCOS de 24 linhas (um unico transfer de 115KB dava abort/boot-loop em display.c:130), MADCTL=0x08 (BGR sem espelho; 0x40/0x48 espelhavam o texto pelo bit MX e trocavam R<->B), inversao INVON (0x21) (INVOFF deixava fundo branco/cores invertidas). Tela de boot display_boot() mostra barras de cor rotuladas + mapa de pinos = teste visual de cor/orientacao.",
         "main/leds.c/.h": "DESATIVADO nesta placa (sem GPIO livre): os GPIOs 0/1/3 viraram UART+SPI. Indicadores agora aparecem na tela do GC9A01. Arquivos mantidos para reuso futuro em outra placa.",
-        "main/transport_rx_can.c": "Backend CAN/TWAI do painel C3 (mesma interface do transport_rx.h, so RX). GUARDADO p/ a migracao (etapa 6); FORA do build (nao testado/compilado). Pinos TWAI=GPIO0/1, 500kbps. Ativar: trocar transport_rx.c por este no CMakeLists + ligar SN65HVD230.",
         "main/relay.c/.h": "DOIS reles do pisca (tic-tac de carro), um por lado da seta. Adicionado jun/2026, ampliado p/ 2 canais em 2026-06-05. RELAY_PIN_L=GPIO2 (IN1, seta ESQUERDA) e RELAY_PIN_R=GPIO8 (IN2, seta DIREITA), modulo ACTIVE-LOW (RELAY_ACTIVE_HIGH=false), tudo no relay.h. Uma task espelha a fase de blink do display (esp_timer_get_time()/450000, ~1.1Hz): cada rele energiza quando a seta do seu lado ACENDE (tic) e solta quando APAGA (tac); no pisca-alerta os dois clicam juntos. So clica com telemetria fresca (relay_set_sides(left,right) chamado pelo main). GPIO2/8 sao strapping mas seguros no boot pois o modulo active-low fica em repouso ALTO. RELE: SRD-05VDC-SL-C (bobina 5V, puxa a partir de ~3.75V; em 3.3V o LED acende mas NAO estala).",
         "main/display_ssd1306.c.bak": "backup do driver SSD1306 antigo (nao compilado), caso volte a usar OLED I2C 128x64."
       }
@@ -109,9 +109,23 @@
         "sdkconfig.defaults": "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y (console na USB, libera 20/21 p/ botoes).",
         "main/main.c": "le 8 botoes + joystick (inputs_read), envia 0x040 on-change + heartbeat 200ms (transport_tx_send).",
         "main/inputs.c/.h": "8 botoes ativo-baixo (pull-up) -> bitmap; joystick ADC1 oneshot (VRx=GPIO3 CH3, VRy=GPIO4 CH4, atten 12dB) -> int8 centrado. Pinos botoes: 5,6,7,10,20,21,2,8.",
-        "main/transport_tx.c/.h": "envio UART1 (GPIO0=TX, GPIO1=RX) com o framing SOF+ID+LEN+PAYLOAD+SEQ+CRC8. So TX (a Botoeira so envia)."
+        "main/transport_tx.c/.h": "interface publica (transport_tx_init/_send) + backend UART original (GPIO0=TX, GPIO1=RX, framing SOF+ID+LEN+PAYLOAD+SEQ+CRC8). FORA do build desde 2026-09-08 (alternativo). So TX (a Botoeira so envia).",
+        "main/transport_tx_can.c": "Backend ATIVO desde 2026-09-08. Fino: can_bus_init(0,1) de ../../components/can_bus (BOT_TX_PIN/BOT_RX_PIN). Compilado (build limpo); nao gravado nesta sessao (Botoeira nao estava na bancada)."
       },
       "scripts": "build_botoeira.ps1 (set-target 1a vez + build), flash_botoeira_nomon.ps1 -Port COMx."
+    },
+    "componente_compartilhado_can_bus": {
+      "pasta": "components/can_bus/ (sibling de codigos/, codigos_c3_painel/, codigos_c3_botoeira/)",
+      "criado_em": "2026-09-08",
+      "motivo": "Os 3 nos reimplementavam o mesmo boilerplate de twai_driver_install/twai_receive/twai_transmit. Extraido pra um componente ESP-IDF unico, referenciado nos 3 CMakeLists.txt de topo via set(EXTRA_COMPONENT_DIRS ../components). E o padrao pra qualquer no CAN futuro (pedais, cambio).",
+      "api": "can_bus_init(tx_gpio,rx_gpio); can_bus_send(id,payload,len); can_bus_start_rx(cb). Struct can_bus_msg_t (id,len,payload[7],seq).",
+      "importante": "main/CMakeLists.txt de cada no NAO declara REQUIRES can_bus de proposito - sem REQUIRES/PRIV_REQUIRES nenhum, o 'main' do IDF ganha TODOS os componentes de graca (e assim que esp_timer etc ja funcionavam sem declarar nada). Declarar REQUIRES matou esse fallback e quebrou o build (esp_timer.h sumiu) - reverteu-se a tentativa.",
+      "arquivos": {
+        "CMakeLists.txt": "idf_component_register(SRCS can_bus.c, INCLUDE_DIRS include, REQUIRES driver)",
+        "include/can_bus.h": "API publica + docstring de wiring (SN65HVD230, 120 ohm nas pontas)",
+        "can_bus.c": "twai_driver_install/start (500kbps fixo), send com seq no ultimo byte, task de rx com callback"
+      },
+      "verificado": "Painel C3 (unico no fisicamente acessivel na sessao de 2026-09-08): build limpo + gravado + boot log confirmando 'can_bus: TWAI/CAN init OK (TX=GPIO0 RX=GPIO1, 500 kbps)'. S3 e Botoeira: build limpo (compile-check), nao gravados (fora da bancada)."
     },
     "leitor_pc": {
       "pasta": "pc_reader\\",
@@ -211,26 +225,26 @@
     "transporte": {
       "estrategia": "Camada de transporte abstraida. O formato logico de mensagem e identico nos dois meios; troca-se apenas o driver de envio/recepcao.",
       "fase_atual": {
-        "meio": "UART (serial por fio)",
-        "motivo": "Hardware ja disponivel; nao requer transceiver. Permite comecar imediatamente.",
-        "ligacao": "TX de um ESP -> RX do outro, RX -> TX, e GND comum (3 fios).",
-        "baud": 115200,
-        "observacao": "Banda sobra para o painel. UART e ponto-a-ponto; cada par S3<->modulo usa uma UART dedicada da S3 (a S3 tem multiplas UARTs)."
-      },
-      "fase_futura": {
-        "meio": "CAN 2.0A (TWAI)",
+        "meio": "CAN 2.0A (TWAI), desde 2026-09-08",
         "motivo": "Multi-no nativo em um unico par de fios, determinismo, robustez a ruido (importante perto do motor de FFB).",
-        "migracao": "Trocar driver UART por TWAI mantendo o mesmo formato de mensagem (ID + payload + contador de sequencia). IDs UART = IDs CAN."
+        "implementacao": "componente compartilhado components/can_bus/ (ver estrutura_de_arquivos.componente_compartilhado_can_bus). Software verificado nos 3 nos; fiacao fisica do SN65HVD230 pendente.",
+        "bitrate_kbps": 500,
+        "observacao": "S3 tinha 2 UARTs dedicadas (painel + botoeira); agora os dois satelites dividem o MESMO barramento TWAI da S3 (GPIO17/18). A antiga UART2 (GPIO15/16) ficou livre."
+      },
+      "fase_anterior": {
+        "meio": "UART (serial por fio, ponto-a-ponto)",
+        "motivo_historico": "Hardware ja disponivel; nao requeria transceiver. Permitiu comecar imediatamente (etapas 1-5).",
+        "status": "Codigo mantido como backend alternativo (transport.c/transport_rx.c/transport_tx.c), fora do build."
       }
     },
-    "barramento_can_futuro": {
+    "barramento_can": {
       "tipo": "CAN 2.0A (11-bit ID)",
-      "implementacao_esp32": "TWAI (controlador CAN interno do ESP32)",
-      "transceiver": "SN65HVD230 (3.3V) - um por no (AINDA NAO ADQUIRIDO)",
+      "implementacao_esp32": "TWAI (controlador CAN interno do ESP32), via components/can_bus",
+      "transceiver": "SN65HVD230 (3.3V) - um por no. EM MAOS desde 2026-09-08 (mais de 3 unidades, sobra p/ nos futuros).",
       "bitrate_kbps": 500,
       "topologia": "daisy-chain, par trancado CANH/CANL + GND comum",
-      "terminacao": "resistor 120 ohm em CADA uma das duas pontas fisicas do barramento (nao nos nos do meio)",
-      "observacao": "ESP32 tem controlador CAN/TWAI interno mas NAO o transceiver; transceiver e externo e obrigatorio. Migracao planejada quando os SN65HVD230 chegarem."
+      "terminacao": "resistor 120 ohm em CADA uma das duas pontas fisicas do barramento (nao nos nos do meio). Resistores ja em maos.",
+      "status_2026_09_08": "SOFTWARE migrado e verificado nos 3 nos (S3, Painel, Botoeira). FIACAO FISICA pendente - sem o SN65HVD230 cabeado em cada no, o driver TWAI sobe mas nao ha trafego real. Painel C3 confirmado rodando o backend CAN na bancada; S3 e Botoeira so compile-check (nao estavam acessiveis)."
     }
   },
 
@@ -250,8 +264,8 @@
         "DOIS reles do pisca (modulo opto active-low, SRD-05VDC bobina 5V): IN1=GPIO2 (seta esq), IN2=GPIO8 (seta dir), clicando em fase com cada seta = som tic-tac de carro com estalos por lado. 5V vem do pino 5V da propria C3.",
         "LEDs de farol baixo (GPIO20/pad RX) e farol alto (GPIO21/pad TX), acionados pela telemetria. Console movido p/ USB-JTAG p/ liberar esses pinos.",
         "OLED 0.42 embutido: reservado para instrumentos analogicos com micro-servos no futuro (nao usado na etapa 1)",
-        "FASE ATUAL: ligacao UART direta com a S3 (3 fios: TX/RX/GND)",
-        "FASE FUTURA: transceiver SN65HVD230 para virar no CAN"
+        "FASE ATUAL (software, 2026-09-08): CAN/TWAI sobre components/can_bus, mesmos pinos GPIO0/1. Confirmado rodando na bancada.",
+        "PENDENTE: cabear o transceiver SN65HVD230 (ja em maos) pra virar trafego real no barramento"
       ],
       "nota_arquitetura": "Nao depende do motor de FFB, mas depende de a S3 estar recebendo telemetria do PC. Recebe as mensagens 0x100, 0x101 e 0x102."
     },
@@ -359,7 +373,7 @@
     {"etapa": 3, "modulo": "Pedais (C3)", "status": "NAO INICIADO", "entrega": "acelerador/freio/embreagem por hall linear.", "transporte": "UART (migra para CAN)"},
     {"etapa": 4, "modulo": "Cambio (C3)", "status": "NAO INICIADO", "entrega": "H-shifter ou sequencial.", "transporte": "UART (migra para CAN)"},
     {"etapa": 5, "modulo": "Botoeira (C3)", "status": "INICIADA 2026-06-10: firmware da Botoeira (codigos_c3_botoeira/, C3 0.42) PRONTO E COMPILADO - le 8 botoes + joystick analogico de visao, envia 0x040 por UART. S3 estendido (botoeira_rx.c, UART2 GPIO15/16) recebe e injeta nos HID (8 botoes + eixos Z/Rz). S3 ja gravado; FALTA: gravar a Botoeira (mover cabo p/ ela) e testar com botoes/joystick fisicos. Botoes: seta esq=GPIO5, seta dir=GPIO6, alerta=GPIO7, buzina=GPIO10, farol alto=GPIO20, farol baixo=GPIO21, limpador=GPIO2, freio-motor=GPIO8. Joystick: VRx=GPIO3, VRy=GPIO4 (3.3V).", "entrega": "farois, setas, buzina, joystick de visao; encoder de menu fica p/ depois.", "transporte": "UART (migra para CAN)"},
-    {"etapa": 6, "modulo": "Migracao para CAN", "status": "CODIGO ESCRITO E GUARDADO 2026-06-10 (transport_can.c na S3 + transport_rx_can.c na C3), FORA do build, nao testado. Falta: comprar os SN65HVD230, ativar nos CMakeLists, ligar o barramento (120 ohm nas pontas) e testar.", "entrega": "Com os SN65HVD230 em maos, trocar backend UART por TWAI mantendo o mesmo formato de mensagem; unificar os enlaces num barramento CAN unico.", "transporte": "CAN"},
+    {"etapa": 6, "modulo": "Migracao para CAN", "status": "SOFTWARE MIGRADO E VERIFICADO 2026-09-08 nos 3 nos (transport_can.c/transport_rx_can.c/transport_tx_can.c ja ATIVOS no CMakeLists, sobre o componente compartilhado components/can_bus). SN65HVD230 e resistores 120 ohm ja em maos. FALTA: cabear o transceiver em cada no (comeco pelo Painel, unico na bancada) e validar trafego real no barramento.", "entrega": "Com os SN65HVD230 em maos, trocar backend UART por TWAI mantendo o mesmo formato de mensagem; unificar os enlaces num barramento CAN unico.", "transporte": "CAN"},
     {"etapa": 7, "modulo": "FFB (volta na S3)", "status": "NAO INICIADO", "entrega": "motor + driver + uso do grupo de fisica da telemetria para calculo de torque local.", "transporte": "local na S3"}
   ],
 
@@ -382,7 +396,8 @@
     "Gravacao de firmware e DEVER do assistente, nao do Vivas: ele usa um unico cabo USB e so uma placa fica ligada por vez; o assistente confirma qual placa esta conectada antes de gravar e avisa quando o Vivas precisa trocar o cabo. (Decisao 2026-06-05; detalhes em ambiente_desenvolvimento.fluxo_de_gravacao_e_responsabilidade.)",
     "Gatilho de migracao para CAN: enquanto houver ATE 2 modulos satelite ligados a S3 (painel + botoeira), manter UART ponto-a-ponto. No momento em que um 3o modulo satelite for adicionado (qualquer tipo, ainda nao definido), migrar IMEDIATAMENTE para CAN/TWAI (transport_can.c / transport_rx_can.c, ja guardados fora do build), em vez de abrir uma 3a UART dedicada. Formato de mensagem (ID+payload+seq+CRC) e identico nos dois meios, IDs UART = IDs CAN, facilitando a troca. (Decisao 2026-06-13.)",
     "Pedais provisorios na PROPRIA S3: acelerador=GPIO10 (ADC1_CH9) e freio=GPIO9 (ADC1_CH8). Hoje sao 2 BOTOES (GPIO->botao->GND, pull-up interno, ativo-baixo); futuramente viram 2 POTENCIOMETROS em molas nos mesmos pinos (ADC-capazes). Troca por macro PEDAIS_USE_ADC em pedais.h (0=botao, 1=ADC). Cursor do pot em 3V3/GND/GPIO, NUNCA 5V. Modulo pedais.c. (Decisao 2026-06-14.)",
-    "Calibracao da direcao pelo botao BOOT (GPIO0): segurar >1.5s entra em modo calibracao; cliques curtos capturam batente esquerdo -> direito -> centro; salva em NVS (namespace 'volante', chave 'steer_cal'); segurar >1.5s durante cancela. O AS5047P e absoluto em 1 volta, entao calib.c faz multi-turn (conta voltas por wrap a 50Hz) com origem = angulo no boot (mola centra o volante ao ligar). Default sem calibracao = 900 graus lock-to-lock. Mapa de eixos HID: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT (so fora da calibracao). Modulo calib.c. (Decisao 2026-06-14.)"
+    "Calibracao da direcao pelo botao BOOT (GPIO0): segurar >1.5s entra em modo calibracao; cliques curtos capturam batente esquerdo -> direito -> centro; salva em NVS (namespace 'volante', chave 'steer_cal'); segurar >1.5s durante cancela. O AS5047P e absoluto em 1 volta, entao calib.c faz multi-turn (conta voltas por wrap a 50Hz) com origem = angulo no boot (mola centra o volante ao ligar). Default sem calibracao = 900 graus lock-to-lock. Mapa de eixos HID: X=direcao, Y=acelerador, Rx=freio, Z=visao horiz, Rz=visao vert; botoes 1-8=botoeira, 16=BOOT (so fora da calibracao). Modulo calib.c. (Decisao 2026-06-14.)",
+    "Migracao pra CAN executada (nao so planejada) em 2026-09-08: os 3 nos passaram a compilar transport_can.c/transport_rx_can.c/transport_tx_can.c (antes so guardados). Extraido um componente ESP-IDF compartilhado, components/can_bus/ (referenciado nos 3 projetos via EXTRA_COMPONENT_DIRS), pra nao reimplementar o driver TWAI por no - e o padrao obrigatorio pra qualquer no CAN futuro. Verificado de verdade so no Painel C3 (unico na bancada): build+flash+boot log confirmando o backend CAN rodando. Fiacao fisica do SN65HVD230 (ja em maos, com os 120 ohm) fica pra proxima sessao com mais placas acessiveis. Documentado tambem em LIGACOES.md secao 10 (fonte oficial de pinagem) e README.md."
   ],
 
   "pendencias_a_definir": [
@@ -402,6 +417,6 @@
     "ETAPA 1 - PENDENTE: instalar scs-sdk-plugin no ETS2 e validar leitura de telemetria real.",
     "ETAPA 2: adicionar leitura do AS5047P por SPI na S3 e stack USB HID (gamepad com pelo menos 1 eixo de direcao).",
     "GERAL: implementar heartbeat (0x7FF) e logica de timeout por no na S3.",
-    "GERAL: quando chegar os SN65HVD230, implementar backend TWAI como segunda opcao de transporte."
+    "GERAL: cabear o SN65HVD230 no Painel C3 (ja na bancada) e, quando S3/Botoeira voltarem a bancada, nos dois - so entao o barramento CAN carrega trafego de verdade (software ja pronto, ver arquitetura.barramento_can)."
   ]
 }
