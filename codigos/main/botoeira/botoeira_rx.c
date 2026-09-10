@@ -1,5 +1,10 @@
 /*
- * botoeira_rx.c – recepção do estado da Botoeira na S3 (UART2, msg 0x040).
+ * botoeira_rx.c – recepção do estado da Botoeira na S3 (msg 0x040).
+ *
+ * botoeira_rx_init()/rx_task abaixo são a implementação ANTIGA por UART2
+ * dedicada — ninguém chama botoeira_rx_init() desde 2026-09-09 (main.c usa só
+ * o CAN). Mantidos de referência; botoeira_rx_feed() é o caminho ativo,
+ * chamado por on_module_msg() quando a msg 0x040 chega pelo CAN.
  */
 
 #include "botoeira_rx.h"

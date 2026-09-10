@@ -146,7 +146,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    // Init do transporte UART para o painel C3
+    // Init do transporte (CAN/TWAI desde 2026-09-08) para painel e botoeira
     transport_init(on_module_msg);
 
     // Init da imagem de telemetria
@@ -179,8 +179,10 @@ void app_main(void)
     // Acelerador/freio (botoes hoje, potenciometros no futuro — ver pedais.h)
     pedais_init();
 
-    // Recepção da Botoeira (UART2, msg 0x040)
-    botoeira_rx_init();
+    // Recepção da Botoeira (msg 0x040) chega pelo CAN via on_module_msg() ->
+    // botoeira_rx_feed(), não mais por UART2 dedicada — GPIO15/16 ficam livres.
+    // (botoeira_rx_init() removido daqui em 2026-09-09: reivindicava GPIO15/16
+    // pra uma UART2 que não recebia nada, já que a Botoeira manda por CAN.)
 
     // USB HID gamepad na USB nativa (etapa 2)
     usb_hid_init();
